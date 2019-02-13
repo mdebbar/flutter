@@ -144,11 +144,13 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
   double _getPrimaryValueFromOffset(Offset value);
   bool get _hasSufficientPendingDragDeltaToAccept;
 
+  final Map<int, PointerDeviceKind> _pointerKinds = <int, PointerDeviceKind>{};
   final Map<int, VelocityTracker> _velocityTrackers = <int, VelocityTracker>{};
 
   @override
   void addPointer(PointerEvent event) {
     startTrackingPointer(event.pointer);
+    _pointerKinds[event.pointer] = event.kind;
     _velocityTrackers[event.pointer] = VelocityTracker();
     if (_state == _DragState.ready) {
       _state = _DragState.possible;
@@ -181,6 +183,7 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
             delta: _getDeltaForDetails(delta),
             primaryDelta: _getPrimaryValueFromOffset(delta),
             globalPosition: event.position,
+            kind: event.kind,
           )));
         }
       } else {
@@ -211,10 +214,12 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
       }
       _pendingDragOffset = Offset.zero;
       _lastPendingEventTimestamp = null;
+      final PointerDeviceKind kind = _pointerKinds[pointer];
       if (onStart != null) {
         invokeCallback<void>('onStart', () => onStart(DragStartDetails(
           sourceTimeStamp: timestamp,
           globalPosition: _initialPosition,
+          kind: kind,
         )));
       }
       if (updateDelta != Offset.zero && onUpdate != null) {
@@ -223,6 +228,7 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
           delta: updateDelta,
           primaryDelta: _getPrimaryValueFromOffset(updateDelta),
           globalPosition: _initialPosition + updateDelta, // Only adds delta for down behaviour
+          kind: kind,
         )));
       }
     }
@@ -245,6 +251,7 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
     final bool wasAccepted = _state == _DragState.accepted;
     _state = _DragState.ready;
     if (wasAccepted && onEnd != null) {
+      final PointerDeviceKind kind = _pointerKinds[pointer];
       final VelocityTracker tracker = _velocityTrackers[pointer];
       assert(tracker != null);
 
@@ -255,6 +262,7 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
         invokeCallback<void>('onEnd', () => onEnd(DragEndDetails(
           velocity: velocity,
           primaryVelocity: _getPrimaryValueFromOffset(velocity.pixelsPerSecond),
+          kind: kind,
         )), debugReport: () {
           return '$estimate; fling at $velocity.';
         });
@@ -262,6 +270,7 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
         invokeCallback<void>('onEnd', () => onEnd(DragEndDetails(
           velocity: Velocity.zero,
           primaryVelocity: 0.0,
+          kind: kind,
         )), debugReport: () {
           if (estimate == null)
             return 'Could not estimate velocity.';
@@ -269,11 +278,13 @@ abstract class DragGestureRecognizer extends OneSequenceGestureRecognizer {
         });
       }
     }
+    _pointerKinds.clear();
     _velocityTrackers.clear();
   }
 
   @override
   void dispose() {
+    _pointerKinds.clear();
     _velocityTrackers.clear();
     super.dispose();
   }

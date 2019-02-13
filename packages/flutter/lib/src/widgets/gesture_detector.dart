@@ -877,7 +877,7 @@ class _GestureSemantics extends SingleChildRenderObjectWidget {
     return owner._recognizers.containsKey(TapGestureRecognizer) ? owner._handleSemanticsTap : null;
   }
 
-  GestureTapCallback get _onLongPressHandler {
+  GestureLongPressCallback get _onLongPressHandler {
     return owner._recognizers.containsKey(LongPressGestureRecognizer) ? owner._handleSemanticsLongPress : null;
   }
 

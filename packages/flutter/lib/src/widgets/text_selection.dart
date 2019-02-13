@@ -8,7 +8,13 @@ import 'package:flutter/gestures.dart' show kDoubleTapTimeout, kDoubleTapSlop;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/gestures.dart' show DragStartBehavior;
+import 'package:flutter/gestures.dart'
+    show
+        DragStartBehavior,
+        PointerDeviceKind,
+        GestureDragStartCallback,
+        GestureDragUpdateCallback,
+        GestureDragEndCallback;
 
 import 'basic.dart';
 import 'container.dart';
@@ -619,6 +625,9 @@ class TextSelectionGestureDetector extends StatefulWidget {
     this.onSingleTapCancel,
     this.onSingleLongTapDown,
     this.onDoubleTapDown,
+    this.onDragSelectionStart,
+    this.onDragSelectionUpdate,
+    this.onDragSelectionEnd,
     this.behavior,
     @required this.child,
   }) : assert(child != null),
@@ -656,6 +665,15 @@ class TextSelectionGestureDetector extends StatefulWidget {
   /// Called after a momentary hold or a short tap that is close in space and
   /// time (within [kDoubleTapTimeout]) to a previous short tap.
   final GestureTapDownCallback onDoubleTapDown;
+
+  /// Called when a mouse starts dragging to select text.
+  final GestureDragStartCallback onDragSelectionStart;
+
+  /// Called repeatedly as a mouse moves while dragging.
+  final GestureDragUpdateCallback onDragSelectionUpdate;
+
+  /// Called when a mouse that was previously dragging is released.
+  final GestureDragEndCallback onDragSelectionEnd;
 
   /// How this gesture detector should behave during hit testing.
   ///
@@ -757,6 +775,24 @@ class _TextSelectionGestureDetectorState extends State<TextSelectionGestureDetec
     return difference.distance <= kDoubleTapSlop;
   }
 
+  void _handleDragStart(DragStartDetails details) {
+    if (details.kind == PointerDeviceKind.mouse && widget.onDragSelectionStart != null) {
+      widget.onDragSelectionStart(details);
+    }
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details) {
+    if (details.kind == PointerDeviceKind.mouse && widget.onDragSelectionUpdate != null) {
+      widget.onDragSelectionUpdate(details);
+    }
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (details.kind == PointerDeviceKind.mouse && widget.onDragSelectionEnd != null) {
+      widget.onDragSelectionEnd(details);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -766,6 +802,9 @@ class _TextSelectionGestureDetectorState extends State<TextSelectionGestureDetec
       onForcePressEnd: widget.onForcePressEnd != null ? _forcePressEnded : null,
       onTapCancel: _handleTapCancel,
       onLongPress: _handleLongPress,
+      onHorizontalDragStart: _handleDragStart,
+      onHorizontalDragUpdate: _handleDragUpdate,
+      onHorizontalDragEnd: _handleDragEnd,
       excludeFromSemantics: true,
       behavior: widget.behavior,
       child: widget.child,

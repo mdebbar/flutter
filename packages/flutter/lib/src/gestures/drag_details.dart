@@ -6,6 +6,7 @@ import 'dart:ui' show Offset;
 
 import 'package:flutter/foundation.dart';
 
+import 'events.dart';
 import 'velocity_tracker.dart';
 
 /// Details object for callbacks that use [GestureDragDownCallback].
@@ -52,8 +53,12 @@ class DragStartDetails {
   /// Creates details for a [GestureDragStartCallback].
   ///
   /// The [globalPosition] argument must not be null.
-  DragStartDetails({ this.sourceTimeStamp, this.globalPosition = Offset.zero })
-    : assert(globalPosition != null);
+  DragStartDetails({
+    this.sourceTimeStamp,
+    this.globalPosition = Offset.zero,
+    this.kind = PointerDeviceKind.touch
+  }) : assert(globalPosition != null),
+       assert(kind != null);
 
   /// Recorded timestamp of the source pointer event that triggered the drag
   /// event.
@@ -65,6 +70,9 @@ class DragStartDetails {
   ///
   /// Defaults to the origin if not specified in the constructor.
   final Offset globalPosition;
+
+  /// The kind of device that's performing the drag gesture.
+  final PointerDeviceKind kind;
 
   // TODO(ianh): Expose the current position, so that you can have a no-jump
   // drag even when disambiguating (though of course it would lag the finger
@@ -103,11 +111,13 @@ class DragUpdateDetails {
     this.sourceTimeStamp,
     this.delta = Offset.zero,
     this.primaryDelta,
-    @required this.globalPosition
+    @required this.globalPosition,
+    this.kind = PointerDeviceKind.touch
   }) : assert(delta != null),
        assert(primaryDelta == null
            || (primaryDelta == delta.dx && delta.dy == 0.0)
-           || (primaryDelta == delta.dy && delta.dx == 0.0));
+           || (primaryDelta == delta.dy && delta.dx == 0.0)),
+       assert(kind != null);
 
   /// Recorded timestamp of the source pointer event that triggered the drag
   /// event.
@@ -139,6 +149,9 @@ class DragUpdateDetails {
   /// The pointer's global position when it triggered this update.
   final Offset globalPosition;
 
+  /// The kind of device that's performing the drag gesture.
+  final PointerDeviceKind kind;
+
   @override
   String toString() => '$runtimeType($delta)';
 }
@@ -167,10 +180,12 @@ class DragEndDetails {
   DragEndDetails({
     this.velocity = Velocity.zero,
     this.primaryVelocity,
+    this.kind = PointerDeviceKind.touch
   }) : assert(velocity != null),
        assert(primaryVelocity == null
            || primaryVelocity == velocity.pixelsPerSecond.dx
-           || primaryVelocity == velocity.pixelsPerSecond.dy);
+           || primaryVelocity == velocity.pixelsPerSecond.dy),
+       assert(kind != null);
 
   /// The velocity the pointer was moving when it stopped contacting the screen.
   ///
@@ -188,6 +203,9 @@ class DragEndDetails {
   ///
   /// Defaults to null if not specified in the constructor.
   final double primaryVelocity;
+
+  /// The kind of device that's performing the drag gesture.
+  final PointerDeviceKind kind;
 
   @override
   String toString() => '$runtimeType($velocity)';

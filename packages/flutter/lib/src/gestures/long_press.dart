@@ -32,7 +32,7 @@ class LongPressGestureRecognizer extends PrimaryPointerGestureRecognizer {
   GestureLongPressUpCallback onLongPressUp;
 
   @override
-  void didExceedDeadline() {
+  void didExceedDeadline(PointerDownEvent event) {
     resolve(GestureDisposition.accepted);
     _longPressAccepted = true;
     if (onLongPress != null) {

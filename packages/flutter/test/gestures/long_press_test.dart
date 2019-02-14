@@ -24,7 +24,7 @@ void main() {
     final LongPressGestureRecognizer longPress = LongPressGestureRecognizer();
 
     bool longPressRecognized = false;
-    longPress.onLongPress = () {
+    longPress.onLongPress = (LongPressDetails details) {
       longPressRecognized = true;
     };
 
@@ -45,7 +45,7 @@ void main() {
     final LongPressGestureRecognizer longPress = LongPressGestureRecognizer();
 
     bool longPressRecognized = false;
-    longPress.onLongPress = () {
+    longPress.onLongPress = (LongPressDetails details) {
       longPressRecognized = true;
     };
 
@@ -74,7 +74,7 @@ void main() {
     };
 
     bool longPressRecognized = false;
-    longPress.onLongPress = () {
+    longPress.onLongPress = (LongPressDetails details) {
       longPressRecognized = true;
     };
 
@@ -110,7 +110,7 @@ void main() {
     };
 
     bool longPressRecognized = false;
-    longPress.onLongPress = () {
+    longPress.onLongPress = (LongPressDetails details) {
       expect(isDangerousStack, isFalse);
       longPressRecognized = true;
     };

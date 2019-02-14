@@ -317,7 +317,7 @@ abstract class PrimaryPointerGestureRecognizer extends OneSequenceGestureRecogni
       primaryPointer = event.pointer;
       initialPosition = event.position;
       if (deadline != null)
-        _timer = Timer(deadline, didExceedDeadline);
+        _timer = Timer(deadline, () => didExceedDeadline(event));
     }
   }
 
@@ -344,7 +344,7 @@ abstract class PrimaryPointerGestureRecognizer extends OneSequenceGestureRecogni
   ///
   /// You must override this method if you supply a [deadline].
   @protected
-  void didExceedDeadline() {
+  void didExceedDeadline(PointerDownEvent event) {
     assert(deadline == null);
   }
 

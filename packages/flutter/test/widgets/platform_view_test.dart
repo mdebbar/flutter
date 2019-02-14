@@ -636,7 +636,7 @@ void main() {
             onVerticalDragStart: (DragStartDetails d) {
               verticalDragAcceptedByParent = true;
             },
-            onLongPress: () {},
+            onLongPress: (LongPressDetails details) {},
             child: const SizedBox(
               width: 200.0,
               height: 100.0,
@@ -1255,7 +1255,7 @@ void main() {
             onVerticalDragStart: (DragStartDetails d) {
               verticalDragAcceptedByParent = true;
             },
-            onLongPress: () {},
+            onLongPress: (LongPressDetails details) {},
             child: const SizedBox(
               width: 200.0,
               height: 100.0,

@@ -183,7 +183,7 @@ class _TooltipState extends State<Tooltip> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
-  void _handleLongPress() {
+  void _handleLongPress(LongPressDetails details) {
     final bool tooltipCreated = ensureTooltipVisible();
     if (tooltipCreated)
       Feedback.forLongPress(context);

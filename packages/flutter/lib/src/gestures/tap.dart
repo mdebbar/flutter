@@ -191,7 +191,7 @@ class TapGestureRecognizer extends PrimaryPointerGestureRecognizer {
   }
 
   @override
-  void didExceedDeadline() {
+  void didExceedDeadline(PointerDownEvent event) {
     _checkDown();
   }
 

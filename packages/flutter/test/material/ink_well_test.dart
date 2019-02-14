@@ -27,7 +27,7 @@ void main() {
               onDoubleTap: () {
                 log.add('double-tap');
               },
-              onLongPress: () {
+              onLongPress: (LongPressDetails details) {
                 log.add('long-press');
               },
               onTapDown: (TapDownDetails details) {
@@ -109,7 +109,7 @@ void main() {
           child: Center(
             child: InkWell(
               onTap: () {},
-              onLongPress: () {},
+              onLongPress: (LongPressDetails details) {},
             ),
           ),
         ),
@@ -137,7 +137,7 @@ void main() {
           child: Center(
             child: InkWell(
               onTap: () {},
-              onLongPress: () {},
+              onLongPress: (LongPressDetails details) {},
               enableFeedback: false,
             ),
           ),

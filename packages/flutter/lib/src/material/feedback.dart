@@ -154,9 +154,9 @@ class Feedback {
   static GestureLongPressCallback wrapForLongPress(GestureLongPressCallback callback, BuildContext context) {
     if (callback == null)
       return null;
-    return () {
+    return (LongPressDetails details) {
       Feedback.forLongPress(context);
-      callback();
+      callback(details);
     };
   }
 

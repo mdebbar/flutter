@@ -263,7 +263,7 @@ class TouchEventDiff extends StatelessWidget {
       msg = '[$actionName] $diff';
     }
     return GestureDetector(
-      onLongPress: () {
+      onLongPress: (LongPressDetails details) {
         print('expected:');
         prettyPrintEvent(originalEvent);
         print('\nactual:');

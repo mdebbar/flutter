@@ -276,7 +276,7 @@ void main() {
             onTapCancel: () {
               tapCancel += 1;
             },
-            onLongPress: () {
+            onLongPress: (LongPressDetails details) {
               longPress += 1;
             },
           ),
@@ -422,7 +422,7 @@ void main() {
           color: const Color(0xFF00FF00),
           child: GestureDetector(
             onForcePressStart: (_) => forcePressStart += 1,
-            onLongPress: () => longPressTimes += 1,
+            onLongPress: (LongPressDetails details) => longPressTimes += 1,
           ),
         ),
       ),

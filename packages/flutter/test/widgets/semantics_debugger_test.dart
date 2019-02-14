@@ -271,7 +271,7 @@ void main() {
         textDirection: TextDirection.ltr,
         child: SemanticsDebugger(
           child: GestureDetector(
-            onLongPress: () {
+            onLongPress: (LongPressDetails details) {
               expect(didLongPress, isFalse);
               didLongPress = true;
             },

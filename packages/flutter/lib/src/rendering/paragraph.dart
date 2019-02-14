@@ -534,7 +534,7 @@ class RenderParagraph extends RenderBox {
       if (recognizer is TapGestureRecognizer) {
         configuration.onTap = recognizer.onTap;
       } else if (recognizer is LongPressGestureRecognizer) {
-        configuration.onLongPress = recognizer.onLongPress;
+        configuration.onLongPress = () => recognizer.onLongPress(LongPressDetails());
       } else {
         assert(false);
       }

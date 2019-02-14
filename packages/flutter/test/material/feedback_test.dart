@@ -108,7 +108,7 @@ void main () {
 
       await tester.pumpWidget(TestWidget(
         longPressHandler: (BuildContext context) {
-          return () => Feedback.forLongPress(context);
+          return (LongPressDetails details) => Feedback.forLongPress(context);
         },
       ));
       await tester.pumpAndSettle(kWaitDuration);
@@ -134,7 +134,7 @@ void main () {
     testWidgets('forLongPress Wrapper', (WidgetTester tester) async {
       final SemanticsTester semanticsTester = SemanticsTester(tester);
       int callbackCount = 0;
-      final VoidCallback callback = () {
+      final GestureLongPressCallback callback = (LongPressDetails details) {
         callbackCount++;
       };
 
@@ -189,7 +189,7 @@ void main () {
         data: ThemeData(platform: TargetPlatform.iOS),
         child: TestWidget(
           longPressHandler: (BuildContext context) {
-            return () => Feedback.forLongPress(context);
+            return (LongPressDetails details) => Feedback.forLongPress(context);
           },
         ),
       ));
@@ -206,13 +206,14 @@ class TestWidget extends StatelessWidget {
 
   const TestWidget({
     this.tapHandler = nullHandler,
-    this.longPressHandler = nullHandler,
+    this.longPressHandler = nullLongPressHandler,
   });
 
   final HandlerCreator tapHandler;
-  final HandlerCreator longPressHandler;
+  final LongPressHandlerCreator longPressHandler;
 
   static VoidCallback nullHandler(BuildContext context) => null;
+  static GestureLongPressCallback nullLongPressHandler(BuildContext context) => null;
 
   @override
   Widget build(BuildContext context) {
@@ -225,3 +226,4 @@ class TestWidget extends StatelessWidget {
 }
 
 typedef HandlerCreator = VoidCallback Function(BuildContext context);
+typedef LongPressHandlerCreator = GestureLongPressCallback Function(BuildContext context);

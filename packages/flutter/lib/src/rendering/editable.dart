@@ -1228,12 +1228,12 @@ class RenderEditable extends RenderBox {
   ///
   /// When [ignorePointer] is true, an ancestor widget must respond to long
   /// press events by calling this method.
-  void handleLongPress() {
+  void handleLongPress(LongPressDetails details) {
     selectWord(cause: SelectionChangedCause.longPress);
   }
-  void _handleLongPress() {
+  void _handleLongPress(LongPressDetails details) {
     assert(!ignorePointer);
-    handleLongPress();
+    handleLongPress(details);
   }
 
   /// Move selection to the location of the last tap down.

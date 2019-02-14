@@ -451,7 +451,7 @@ class TestWidgetInspectorService extends Object with WidgetInspectorService {
           child: WidgetInspector(
             selectButtonBuilder: null,
             child: GestureDetector(
-              onLongPress: () {
+              onLongPress: (LongPressDetails details) {
                 expect(didLongPress, isFalse);
                 didLongPress = true;
               },

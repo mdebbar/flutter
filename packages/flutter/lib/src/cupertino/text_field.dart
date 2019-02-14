@@ -475,7 +475,7 @@ class _CupertinoTextFieldState extends State<CupertinoTextField> with AutomaticK
     _requestKeyboard();
   }
 
-  void _handleSingleLongTapDown() {
+  void _handleSingleLongTapDown(LongPressDetails details) {
     _renderEditable.selectPosition(cause: SelectionChangedCause.longPress);
     _editableTextKey.currentState.showToolbar();
   }

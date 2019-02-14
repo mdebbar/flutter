@@ -37,6 +37,7 @@ export 'package:flutter/gestures.dart' show
   TapDownDetails,
   TapUpDetails,
   ForcePressDetails,
+  LongPressDetails,
   Velocity;
 
 // Examples can assume:
@@ -746,11 +747,11 @@ class RawGestureDetectorState extends State<RawGestureDetector> {
       recognizer.onTap();
   }
 
-  void _handleSemanticsLongPress() {
+  void _handleSemanticsLongPress(LongPressDetails details) {
     final LongPressGestureRecognizer recognizer = _recognizers[LongPressGestureRecognizer];
     assert(recognizer != null);
     if (recognizer.onLongPress != null)
-      recognizer.onLongPress();
+      recognizer.onLongPress(details);
   }
 
   void _handleSemanticsHorizontalDragUpdate(DragUpdateDetails updateDetails) {
@@ -877,7 +878,7 @@ class _GestureSemantics extends SingleChildRenderObjectWidget {
     return owner._recognizers.containsKey(TapGestureRecognizer) ? owner._handleSemanticsTap : null;
   }
 
-  GestureTapCallback get _onLongPressHandler {
+  GestureLongPressCallback get _onLongPressHandler {
     return owner._recognizers.containsKey(LongPressGestureRecognizer) ? owner._handleSemanticsLongPress : null;
   }
 

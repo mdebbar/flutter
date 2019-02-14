@@ -102,7 +102,7 @@ class _SemanticsDebuggerState extends State<SemanticsDebugger> with WidgetsBindi
     });
   }
 
-  void _handleLongPress() {
+  void _handleLongPress(LongPressDetails details) {
     assert(_lastPointerDownLocation != null);
     _performAction(_lastPointerDownLocation, SemanticsAction.longPress);
     setState(() {

@@ -8,7 +8,7 @@ import 'package:flutter/gestures.dart' show kDoubleTapTimeout, kDoubleTapSlop;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/gestures.dart' show DragStartBehavior;
+import 'package:flutter/gestures.dart';
 
 import 'basic.dart';
 import 'container.dart';
@@ -735,9 +735,13 @@ class _TextSelectionGestureDetectorState extends State<TextSelectionGestureDetec
       widget.onForcePressEnd(details);
   }
 
-  void _handleLongPress() {
+  void _handleLongPress(LongPressDetails details) {
+    if (details.kind == PointerDeviceKind.touch) {
+      return;
+    }
+
     if (!_isDoubleTap && widget.onSingleLongTapDown != null) {
-      widget.onSingleLongTapDown();
+      widget.onSingleLongTapDown(details);
     }
     _isDoubleTap = false;
   }

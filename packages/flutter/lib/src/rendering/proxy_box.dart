@@ -3286,7 +3286,7 @@ class RenderSemanticsGestureHandler extends RenderProxyBox {
     if (onTap != null && _isValidAction(SemanticsAction.tap))
       config.onTap = onTap;
     if (onLongPress != null && _isValidAction(SemanticsAction.longPress))
-      config.onLongPress = onLongPress;
+      config.onLongPress = _performSemanticLongPress;
     if (onHorizontalDragUpdate != null) {
       if (_isValidAction(SemanticsAction.scrollRight))
         config.onScrollRight = _performSemanticScrollRight;
@@ -3303,6 +3303,12 @@ class RenderSemanticsGestureHandler extends RenderProxyBox {
 
   bool _isValidAction(SemanticsAction action) {
     return validActions == null || validActions.contains(action);
+  }
+
+  void _performSemanticLongPress() {
+    if (onLongPress != null) {
+      onLongPress(LongPressDetails());
+    }
   }
 
   void _performSemanticScrollLeft() {

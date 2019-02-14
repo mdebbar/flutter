@@ -530,13 +530,13 @@ class _InkResponseState<T extends InkResponse> extends State<T> with AutomaticKe
       widget.onDoubleTap();
   }
 
-  void _handleLongPress(BuildContext context) {
+  void _handleLongPress(BuildContext context, LongPressDetails details) {
     _currentSplash?.confirm();
     _currentSplash = null;
     if (widget.onLongPress != null) {
       if (widget.enableFeedback)
         Feedback.forLongPress(context);
-      widget.onLongPress();
+      widget.onLongPress(details);
     }
   }
 
@@ -568,7 +568,7 @@ class _InkResponseState<T extends InkResponse> extends State<T> with AutomaticKe
       onTap: enabled ? () => _handleTap(context) : null,
       onTapCancel: enabled ? _handleTapCancel : null,
       onDoubleTap: widget.onDoubleTap != null ? _handleDoubleTap : null,
-      onLongPress: widget.onLongPress != null ? () => _handleLongPress(context) : null,
+      onLongPress: widget.onLongPress != null ? (LongPressDetails details) => _handleLongPress(context, details) : null,
       behavior: HitTestBehavior.opaque,
       child: widget.child,
       excludeFromSemantics: widget.excludeFromSemantics,

@@ -7,9 +7,31 @@ import 'constants.dart';
 import 'events.dart';
 import 'recognizer.dart';
 
+/// Details for [GestureLongPressCallback], such as position and device kind.
+///
+/// See also:
+///
+///  * [GestureDetector.onLongPress], which receives this information.
+class LongPressDetails {
+  /// Creates details for a [GestureLongPressCallback].
+  ///
+  /// The [globalPosition] argument must not be null.
+  LongPressDetails({
+    this.globalPosition = Offset.zero,
+    this.kind = PointerDeviceKind.touch,
+  }) : assert(globalPosition != null),
+       assert(kind != null);
+
+  /// The global position at which the pointer contacted the screen.
+  final Offset globalPosition;
+
+  /// The kind of the device that triggered the long press.
+  final PointerDeviceKind kind;
+}
+
 /// Signature for when a pointer has remained in contact with the screen at the
 /// same location for a long period of time.
-typedef GestureLongPressCallback = void Function();
+typedef GestureLongPressCallback = void Function(LongPressDetails details);
 
 /// Signature for when a pointer stops contacting the screen after a long press gesture was detected.
 typedef GestureLongPressUpCallback = void Function();
@@ -32,11 +54,14 @@ class LongPressGestureRecognizer extends PrimaryPointerGestureRecognizer {
   GestureLongPressUpCallback onLongPressUp;
 
   @override
-  void didExceedDeadline() {
+  void didExceedDeadline(PointerDownEvent event) {
     resolve(GestureDisposition.accepted);
     _longPressAccepted = true;
     if (onLongPress != null) {
-      invokeCallback<void>('onLongPress', onLongPress);
+      invokeCallback<void>('onLongPress', () => onLongPress(LongPressDetails(
+        globalPosition: initialPosition,
+        kind: event.kind,
+      )));
     }
   }
 

@@ -19,6 +19,10 @@ export 'package:flutter/gestures.dart' show
   GestureTapCallback,
   GestureTapCancelCallback,
   GestureLongPressCallback,
+  GestureLongPressUpCallback,
+  GestureLongPressStartCallback,
+  GestureLongPressMoveUpdateCallback,
+  GestureLongPressEndCallback,
   GestureDragDownCallback,
   GestureDragStartCallback,
   GestureDragUpdateCallback,
@@ -31,6 +35,9 @@ export 'package:flutter/gestures.dart' show
   GestureForcePressPeakCallback,
   GestureForcePressEndCallback,
   GestureForcePressUpdateCallback,
+  LongPressStartDetails,
+  LongPressMoveUpdateDetails,
+  LongPressEndDetails,
   ScaleStartDetails,
   ScaleUpdateDetails,
   ScaleEndDetails,
@@ -162,6 +169,9 @@ class GestureDetector extends StatelessWidget {
     this.onDoubleTap,
     this.onLongPress,
     this.onLongPressUp,
+    this.onLongPressStart,
+    this.onLongPressMoveUpdate,
+    this.onLongPressEnd,
     this.onVerticalDragDown,
     this.onVerticalDragStart,
     this.onVerticalDragUpdate,
@@ -262,6 +272,19 @@ class GestureDetector extends StatelessWidget {
 
   /// A pointer that has triggered a long-press has stopped contacting the screen.
   final GestureLongPressUpCallback onLongPressUp;
+
+  /// A pointer has remained in contact with the screen at the same location for
+  /// a long period of time. Similar to [onLongPress] but reports the location
+  /// of the original long press down position.
+  final GestureLongPressStartCallback onLongPressStart;
+
+  /// A pointer has been drag-moved after a long press.
+  final GestureLongPressMoveUpdateCallback onLongPressMoveUpdate;
+
+  /// A pointer that has triggered a long-press has stopped contacting the screen.
+  /// Similar to [onLongPressUp] but reports the position on of the screen where
+  /// the pointer stopped contacting the screen.
+  final GestureLongPressEndCallback onLongPressEnd;
 
   /// A pointer has contacted the screen and might begin to move vertically.
   final GestureDragDownCallback onVerticalDragDown;
@@ -422,12 +445,19 @@ class GestureDetector extends StatelessWidget {
       );
     }
 
-    if (onLongPress != null || onLongPressUp !=null) {
+    if (onLongPress != null ||
+        onLongPressUp != null ||
+        onLongPressStart != null ||
+        onLongPressMoveUpdate != null ||
+        onLongPressEnd != null) {
       gestures[LongPressGestureRecognizer] = GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
         () => LongPressGestureRecognizer(debugOwner: this),
         (LongPressGestureRecognizer instance) {
           instance
             ..onLongPress = onLongPress
+            ..onLongPressStart = onLongPressStart
+            ..onLongPressMoveUpdate = onLongPressMoveUpdate
+            ..onLongPressEnd =onLongPressEnd
             ..onLongPressUp = onLongPressUp;
         },
       );

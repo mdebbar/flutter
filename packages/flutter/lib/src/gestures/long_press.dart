@@ -128,8 +128,10 @@ class LongPressGestureRecognizer extends PrimaryPointerGestureRecognizer {
   /// Creates a long-press gesture recognizer.
   ///
   /// Consider assigning the [onLongPress] callback after creating this object.
-  LongPressGestureRecognizer({ Object debugOwner })
-    : super(deadline: kLongPressTimeout, debugOwner: debugOwner);
+  LongPressGestureRecognizer({
+    Object debugOwner,
+    PointerDeviceKind kind,
+  }) : super(deadline: kLongPressTimeout, debugOwner: debugOwner, kind: kind);
 
   bool _longPressAccepted = false;
 
@@ -185,12 +187,16 @@ class LongPressDragGestureRecognizer extends PrimaryPointerGestureRecognizer {
   ///
   /// Consider assigning the [onLongPressStart], [onLongPressDragUpdate] and
   /// the [onLongPressUp] callbacks after creating this object.
-  LongPressDragGestureRecognizer({ Object debugOwner }) : super(
+  LongPressDragGestureRecognizer({
+    Object debugOwner,
+    PointerDeviceKind kind,
+  }) : super(
     deadline: kLongPressTimeout,
     // Since it's a drag gesture, no travel distance will cause it to get
     // rejected after the long-press is accepted.
     postAcceptSlopTolerance: null,
     debugOwner: debugOwner,
+    kind: kind,
   );
 
   bool _longPressAccepted = false;

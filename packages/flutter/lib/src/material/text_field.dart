@@ -699,6 +699,18 @@ class _TextFieldState extends State<TextField> with AutomaticKeepAliveClientMixi
     }
   }
 
+  void _handleDragSelectionStart(DragStartDetails details) {
+    _renderEditable.handleDragSelectionStart(details);
+  }
+
+  void _handleDragSelectionUpdate(DragUpdateDetails details) {
+    _renderEditable.handleDragSelectionUpdate(details);
+  }
+
+  void _handleDragSelectionEnd(DragEndDetails details) {
+    _renderEditable.handleDragSelectionEnd(details);
+  }
+
   void _startSplash(TapDownDetails details) {
     if (_effectiveFocusNode.hasFocus)
       return;
@@ -863,6 +875,9 @@ class _TextFieldState extends State<TextField> with AutomaticKeepAliveClientMixi
           onSingleLongTapDragUpdate: _handleSingleLongTapDragUpdate,
           onSingleLongTapUp: _handleSingleLongTapUp,
           onDoubleTapDown: _handleDoubleTapDown,
+          onDragSelectionStart: _handleDragSelectionStart,
+          onDragSelectionUpdate: _handleDragSelectionUpdate,
+          onDragSelectionEnd: _handleDragSelectionEnd,
           behavior: HitTestBehavior.translucent,
           child: child,
         ),

@@ -151,7 +151,15 @@ abstract class GestureRecognizer extends GestureArenaMember with DiagnosticableT
 /// simultaneous touches to each result in a separate tap.
 abstract class OneSequenceGestureRecognizer extends GestureRecognizer {
   /// Initialize the object.
-  OneSequenceGestureRecognizer({ Object debugOwner }) : super(debugOwner: debugOwner);
+  OneSequenceGestureRecognizer({
+    Object debugOwner,
+    @required PointerDeviceKind kind,
+  }) :  _kind = kind,
+        super(debugOwner: debugOwner);
+
+  /// The kind of device that's allowed to be recognized. If null, events from
+  /// all device kinds will be tracked and recognized.
+  final PointerDeviceKind _kind;
 
   final Map<int, GestureArenaEntry> _entries = <int, GestureArenaEntry>{};
   final Set<int> _trackedPointers = HashSet<int>();
@@ -257,6 +265,14 @@ abstract class OneSequenceGestureRecognizer extends GestureRecognizer {
     if (event is PointerUpEvent || event is PointerCancelEvent)
       stopTrackingPointer(event.pointer);
   }
+
+  /// Whether or not a pointer is allowed to be tracked by this recognizer.
+  ///
+  /// Currently, it only checks for device kind. But in the future we could check
+  /// for other things e.g. filter clicks from the right mouse button.
+  bool isPointerAllowed(PointerDownEvent event) {
+    return _kind == null || _kind == event.kind;
+  }
 }
 
 /// The possible states of a [PrimaryPointerGestureRecognizer].
@@ -297,6 +313,7 @@ abstract class PrimaryPointerGestureRecognizer extends OneSequenceGestureRecogni
     this.preAcceptSlopTolerance = kTouchSlop,
     this.postAcceptSlopTolerance = kTouchSlop,
     Object debugOwner,
+    PointerDeviceKind kind,
   }) : assert(
          preAcceptSlopTolerance == null || preAcceptSlopTolerance >= 0,
          'The preAcceptSlopTolerance must be positive or null',
@@ -305,7 +322,7 @@ abstract class PrimaryPointerGestureRecognizer extends OneSequenceGestureRecogni
          postAcceptSlopTolerance == null || postAcceptSlopTolerance >= 0,
          'The postAcceptSlopTolerance must be positive or null',
        ),
-       super(debugOwner: debugOwner);
+       super(debugOwner: debugOwner, kind: kind);
 
   /// If non-null, the recognizer will call [didExceedDeadline] after this
   /// amount of time has elapsed since starting to track the primary pointer.
@@ -339,6 +356,10 @@ abstract class PrimaryPointerGestureRecognizer extends OneSequenceGestureRecogni
 
   @override
   void addPointer(PointerDownEvent event) {
+    if (!isPointerAllowed(event)) {
+      return;
+    }
+
     startTrackingPointer(event.pointer);
     if (state == GestureRecognizerState.ready) {
       state = GestureRecognizerState.possible;

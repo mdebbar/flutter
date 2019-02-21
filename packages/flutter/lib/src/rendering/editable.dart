@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui show TextBox, lerpDouble;
 
@@ -23,6 +24,8 @@ const Offset _kFloatingCaretSizeIncrease = Offset(0.5, 1.0);
 
 // The corner radius of the floating cursor in pixels.
 const double _kFloatingCaretRadius = 1.0;
+
+const Duration _kDragSelectionUpdateThrottle = Duration(milliseconds: 50);
 
 /// Signature for the callback that reports when the user changes the selection
 /// (including the cursor location).
@@ -55,6 +58,10 @@ enum SelectionChangedCause {
   /// Keyboard-triggered selection changes may be caused by the IME as well as
   /// by accessibility tools (e.g. TalkBack on Android).
   keyboard,
+
+  /// The user used the mouse to change the selection by dragging over a piece
+  /// of text.
+  mouse,
 }
 
 /// Signature for the callback that reports when the caret location changes.
@@ -198,6 +205,10 @@ class RenderEditable extends RenderBox {
       ..onTap = _handleTap;
     _longPress = LongPressGestureRecognizer(debugOwner: this)
       ..onLongPress = _handleLongPress;
+    _drag = HorizontalDragGestureRecognizer(debugOwner: this, kind: PointerDeviceKind.mouse)
+      ..onStart = _handleDragSelectionStart
+      ..onUpdate = _handleDragSelectionUpdate
+      ..onEnd = _handleDragSelectionEnd;
   }
 
   /// Character used to obscure text if [obscureText] is true.
@@ -1170,6 +1181,7 @@ class RenderEditable extends RenderBox {
 
   TapGestureRecognizer _tap;
   LongPressGestureRecognizer _longPress;
+  HorizontalDragGestureRecognizer _drag;
 
   @override
   void handleEvent(PointerEvent event, BoxHitTestEntry entry) {
@@ -1179,6 +1191,7 @@ class RenderEditable extends RenderBox {
     if (event is PointerDownEvent && onSelectionChanged != null) {
       _tap.addPointer(event);
       _longPress.addPointer(event);
+      _drag.addPointer(event);
     }
   }
 
@@ -1223,7 +1236,7 @@ class RenderEditable extends RenderBox {
   }
 
   /// If [ignorePointer] is false (the default) then this method is called by
-  /// the internal gesture recognizer's [LongPressRecognizer.onLongPress]
+  /// the internal gesture recognizer's [LongPressGestureRecognizer.onLongPress]
   /// callback.
   ///
   /// When [ignorePointer] is true, an ancestor widget must respond to long
@@ -1234,6 +1247,102 @@ class RenderEditable extends RenderBox {
   void _handleLongPress() {
     assert(!ignorePointer);
     handleLongPress();
+  }
+
+  TextPosition _lastDragSelectionStartPosition;
+
+  /// If [ignorePointer] is false (the default) then this method is called by
+  /// the internal gesture recognizer's [HorizontalDragGestureRecognizer.onStart]
+  /// callback.
+  ///
+  /// When [ignorePointer] is true, an ancestor widget must respond to drag
+  /// start events by calling this method.
+  void handleDragSelectionStart(DragStartDetails details) {
+    assert(_lastDragSelectionStartPosition == null);
+    if (onSelectionChanged != null) {
+      _layoutText(constraints.maxWidth);
+      final TextPosition position =
+          _getTextPositionForDragDetailGlobalPosition(details.globalPosition);
+      _lastDragSelectionStartPosition = position;
+      onSelectionChanged(TextSelection.fromPosition(position), this,
+          SelectionChangedCause.mouse);
+    }
+  }
+
+  void _handleDragSelectionStart(DragStartDetails details) {
+    assert(!ignorePointer);
+    handleDragSelectionStart(details);
+  }
+
+  /// If [ignorePointer] is false (the default) then this method is called by
+  /// the internal gesture recognizer's [HorizontalDragGestureRecognizer.onUpdate]
+  /// callback.
+  ///
+  /// When [ignorePointer] is true, an ancestor widget must respond to drag
+  /// update events by calling this method.
+  void handleDragSelectionUpdate(DragUpdateDetails details) {
+    _throttleDragSelectionUpdate(details);
+  }
+
+  void _handleDragSelectionUpdate(DragUpdateDetails details) {
+    assert(!ignorePointer);
+    handleDragSelectionUpdate(details);
+  }
+
+  Timer _dragSelectionUpdateTimer;
+  DragUpdateDetails _lastDragSelectionUpdateDetails;
+
+  void _throttleDragSelectionUpdate(DragUpdateDetails details) {
+    // Only schedule a new timer if there's no one pending.
+    _dragSelectionUpdateTimer ??= Timer(_kDragSelectionUpdateThrottle, _doDragSelectionUpdate);
+    _lastDragSelectionUpdateDetails = details;
+  }
+
+  void _doDragSelectionUpdate() {
+    assert(_lastDragSelectionStartPosition != null);
+    assert(_lastDragSelectionUpdateDetails != null);
+    _dragSelectionUpdateTimer = null;
+    if (onSelectionChanged != null) {
+      final TextPosition updatePosition =
+          _getTextPositionForDragDetailGlobalPosition(_lastDragSelectionUpdateDetails.globalPosition);
+      final int baseOffset =
+          math.min(_lastDragSelectionStartPosition.offset, updatePosition.offset);
+      final int extentOffset =
+          math.max(_lastDragSelectionStartPosition.offset, updatePosition.offset);
+      onSelectionChanged(
+        TextSelection(baseOffset: baseOffset, extentOffset: extentOffset),
+        this,
+        SelectionChangedCause.mouse,
+      );
+    }
+  }
+
+  /// If [ignorePointer] is false (the default) then this method is called by
+  /// the internal gesture recognizer's [HorizontalDragGestureRecognizer.onEnd]
+  /// callback.
+  ///
+  /// When [ignorePointer] is true, an ancestor widget must respond to drag
+  /// end events by calling this method.
+  void handleDragSelectionEnd(DragEndDetails details) {
+    assert(_lastDragSelectionStartPosition != null);
+    if (_dragSelectionUpdateTimer != null) {
+      // If there's already an update scheduled, trigger it immediately and
+      // cancel the timer.
+      _dragSelectionUpdateTimer.cancel();
+      _doDragSelectionUpdate();
+    }
+    _lastDragSelectionStartPosition = null;
+    _lastDragSelectionUpdateDetails = null;
+  }
+
+  void _handleDragSelectionEnd(DragEndDetails details) {
+    assert(!ignorePointer);
+    handleDragSelectionEnd(details);
+  }
+
+  TextPosition _getTextPositionForDragDetailGlobalPosition(Offset globalPosition) {
+    _layoutText(constraints.maxWidth);
+    return _textPainter.getPositionForOffset(globalToLocal(globalPosition - _paintOffset));
   }
 
   /// Move selection to the location of the last tap down.

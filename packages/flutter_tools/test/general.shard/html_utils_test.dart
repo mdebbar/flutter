@@ -30,6 +30,7 @@ const String htmlSample2 = '''
   <base href="$kBaseHrefPlaceholder">
   <meta charset="utf-8">
   <link rel="icon" type="image/png" href="favicon.png"/>
+  <script>$kFlutterJsScriptPlaceholder</script>
 </head>
 <body>
   <div></div>
@@ -47,6 +48,7 @@ const String htmlSample2 = '''
 String htmlSample2Replaced({
   required String baseHref,
   required String serviceWorkerVersion,
+  required String flutterJsScript,
 }) =>
     '''
 <!DOCTYPE html>
@@ -56,6 +58,7 @@ String htmlSample2Replaced({
   <base href="$baseHref">
   <meta charset="utf-8">
   <link rel="icon" type="image/png" href="favicon.png"/>
+  <script>$flutterJsScript</script>
 </head>
 <body>
   <div></div>
@@ -117,12 +120,14 @@ void main() {
     indexHtml.applySubstitutions(
       baseHref: '/foo/333/',
       serviceWorkerVersion: 'v123xyz',
+      flutterJsScript: 'console.log("flutter.js");',
     );
     expect(
       indexHtml.content,
       htmlSample2Replaced(
         baseHref: '/foo/333/',
         serviceWorkerVersion: 'v123xyz',
+        flutterJsScript: 'console.log("flutter.js");',
       ),
     );
   });
@@ -134,8 +139,59 @@ void main() {
     indexHtml.applySubstitutions(
       baseHref: '/foo/333/',
       serviceWorkerVersion: 'v123xyz',
+      flutterJsScript: '',
     );
     // The parsed base href should be updated after substitutions.
     expect(indexHtml.baseHref, 'foo/333');
+  });
+
+  group('$substituteInText', () {
+    test('simple substitutions', () {
+      expect(
+        substituteInText(r'foo $_$BAR baz', <String, String>{r'$_$BAR': 'barbar'}),
+        'foo barbar baz',
+      );
+      expect(
+        substituteInText(
+          r'$_$FOO bar $_$BAZ',
+          <String, String>{r'$_$BAZ': 'bazbaz', r'$_$FOO': 'foofoo'},
+        ),
+        'foofoo bar bazbaz',
+      );
+    });
+
+    test('various lengths', () {
+      expect(
+        substituteInText(
+          'foo bar baz',
+          <String, String>{'foo': 'MyFoo', 'bar': 'MyBar', 'baz': 'MyBaz'},
+        ),
+        'MyFoo MyBar MyBaz',
+      );
+    });
+
+    test('recursive substitutions', () {
+      expect(
+        substituteInText(
+          'foo bar baz',
+          <String, String>{'foo': 'MyFoo', 'MyFoo': 'MyFoo2'},
+        ),
+        'MyFoo2 bar baz',
+      );
+      expect(
+        substituteInText(
+          'foo bar baz',
+          <String, String>{'foo': 'MyFoo', 'MyFoo': 'MyFoo2', 'MyFoo2': 'MyFoo3'},
+        ),
+        'MyFoo3 bar baz',
+      );
+      expect(
+        substituteInText(
+          'foo bar baz',
+          <String, String>{'foo': 'bar', 'bar': 'MyBar2'},
+        ),
+        'MyBar2 MyBar2 baz',
+      );
+    });
   });
 }

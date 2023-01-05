@@ -498,6 +498,7 @@ class WebAssetServer implements AssetReader {
       // Currently, we don't support --base-href for the "run" command.
       baseHref: '/',
       serviceWorkerVersion: null,
+      flutterJsScript: flutter_js.generateFlutterJsFile(),
     );
 
     final Map<String, String> headers = <String, String>{

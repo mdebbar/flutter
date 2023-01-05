@@ -439,6 +439,7 @@ class WebReleaseBundle extends Target {
         indexHtml.applySubstitutions(
           baseHref: environment.defines[kBaseHref] ?? '/',
           serviceWorkerVersion: Random().nextInt(4294967296).toString(),
+          flutterJsScript: flutter_js.generateFlutterJsFile(),
         );
         outputFile.writeAsStringSync(indexHtml.content);
         continue;

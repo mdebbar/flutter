@@ -11,6 +11,9 @@ _flutter.loader = null;
   "use strict";
 
   const baseUri = ensureTrailingSlash(document.baseURI) || "/";
+  // TODO(mdebbar): DON'T HARDCODE THIS.
+  const defaultCanvasKitVersion = "0.37.1";
+  const defaultCanvasKitBaseUrl = `https://unpkg.com/canvaskit-wasm@${defaultCanvasKitVersion}/bin/`;
 
   function ensureTrailingSlash(uri) {
     return uri.endsWith("/") ? uri : `${uri}/`;
@@ -65,7 +68,9 @@ _flutter.loader = null;
     constructor(validPatterns, policyName = "flutter-js") {
       const patterns = validPatterns || [
         /\.dart\.js$/,
-        /^flutter_service_worker.js$/
+        /^flutter_service_worker.js$/,
+        /^canvaskit\.js$/,
+        /^canvaskit\.wasm$/,
       ];
       if (window.trustedTypes) {
         this.policy = trustedTypes.createPolicy(policyName, {
@@ -197,6 +202,60 @@ _flutter.loader = null;
           }
         });
       });
+    }
+  }
+
+  class FlutterAutoPrefetcher {
+    constructor() {
+      this._isPrefetched = false;
+    }
+
+    /**
+     * Injects a TrustedTypesPolicy (or undefined if the feature is not supported).
+     * @param {TrustedTypesPolicy | undefined} policy
+     */
+    setTrustedTypesPolicy(policy) {
+      this._ttPolicy = policy;
+    }
+
+    prefetch(canvasKitBaseUrl) {
+      if (this._isPrefetched) {
+        return;
+      }
+      this._isPrefetched = true;
+
+      canvasKitBaseUrl = canvasKitBaseUrl
+        ? `${baseUri}${ensureTrailingSlash(canvasKitBaseUrl)}`
+        : defaultCanvasKitBaseUrl;
+
+      const prefetchTags = [
+        // TODO(mdebbar): add more.
+        // this._createPrefetchTag(`${canvasKitBaseUrl}canvaskit.js`),
+        this._createPrefetchTag(`${canvasKitBaseUrl}canvaskit.wasm`),
+      ];
+      prefetchTags.forEach((tag) => {
+        console.debug("Prefetching", tag.href);
+        document.head.appendChild(tag);
+      });
+    }
+
+    /**
+     * Creates a script tag for the given URL.
+     * @param {string} url
+     * @returns {HTMLScriptElement}
+     */
+    _createPrefetchTag(url) {
+      const prefetchTag = document.createElement("link");
+      prefetchTag.rel = "preload";
+      prefetchTag.as = "fetch";
+      prefetchTag.crossOrigin = "anonymous";
+      // Apply TrustedTypes validation, if available.
+      let trustedUrl = url;
+      if (this._ttPolicy != null) {
+        trustedUrl = this._ttPolicy.createScriptURL(url);
+      }
+      prefetchTag.href = trustedUrl;
+      return prefetchTag;
     }
   }
 
@@ -338,7 +397,7 @@ _flutter.loader = null;
      *                     supplies an `onEntrypointLoaded` Function as an option.
      */
     async loadEntrypoint(options) {
-      const { serviceWorker, ...entrypoint } = options || {};
+      const { serviceWorker, canvasKitBaseUrl, ...entrypoint } = options || {};
 
       // A Trusted Types policy that is going to be used by the loader.
       const flutterTT = new FlutterTrustedTypesPolicy();
@@ -351,6 +410,10 @@ _flutter.loader = null;
         // Regardless of what happens with the injection of the SW, the show must go on
         console.warn("Exception while loading service worker:", e);
       });
+
+      const autoPrefetcher = new FlutterAutoPrefetcher();
+      autoPrefetcher.setTrustedTypesPolicy(flutterTT.policy);
+      autoPrefetcher.prefetch(canvasKitBaseUrl);
 
       // The FlutterEntrypointLoader instance could be injected as a dependency
       // (and dynamically imported from a module if not present).

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:ui' show Offset, PointerDeviceKind;
+import 'dart:ui' show Offset, PointerDeviceKind, PointerEventHandledCallback;
 
 import 'package:flutter/foundation.dart';
 import 'package:vector_math/vector_math_64.dart';
@@ -271,6 +271,7 @@ abstract class PointerEvent with Diagnosticable {
     this.synthesized = false,
     this.transform,
     this.original,
+    this.handledCallback,
   });
 
   /// The ID of the [FlutterView] which this event originated from.
@@ -513,6 +514,12 @@ abstract class PointerEvent with Diagnosticable {
   /// transformed events actually originated from the same pointer interaction.
   final PointerEvent? original;
 
+  final PointerEventHandledCallback? handledCallback;
+
+  void informHandled(bool handled) {
+    handledCallback?.call(handled);
+  }
+
   /// Transforms the event from the global coordinate space into the coordinate
   /// space of an event receiver.
   ///
@@ -669,7 +676,7 @@ abstract class _AbstractPointerEvent implements PointerEvent { }
 // A _TransformedPointerEvent stores an [original] event and the [transform]
 // matrix. It defers all field getters to the original event, except for
 // [localPosition] and [localDelta], which are calculated when first used.
-abstract class _TransformedPointerEvent extends _AbstractPointerEvent with Diagnosticable, _PointerEventDescription {
+abstract class _TransformedPointerEvent extends _AbstractPointerEvent with Diagnosticable, _PointerEventDescription, _HandledCallback {
   @override
   PointerEvent get original;
 
@@ -752,6 +759,9 @@ abstract class _TransformedPointerEvent extends _AbstractPointerEvent with Diagn
   bool get synthesized => original.synthesized;
 
   @override
+  PointerEventHandledCallback? get handledCallback => original.handledCallback;
+
+  @override
   late final Offset localPosition = PointerEvent.transformPosition(transform, position);
 
   @override
@@ -810,6 +820,12 @@ mixin _CopyPointerAddedEvent on PointerEvent {
       tilt: tilt ?? this.tilt,
       embedderId: embedderId ?? this.embedderId,
     ).transformed(transform);
+  }
+}
+
+mixin _HandledCallback on PointerEvent {
+  void informHandled(bool handled) {
+    handledCallback?.call(handled);
   }
 }
 
@@ -1728,6 +1744,7 @@ abstract class PointerSignalEvent extends PointerEvent {
     super.device,
     super.position,
     super.embedderId,
+    super.handledCallback,
   });
 }
 
@@ -1794,6 +1811,7 @@ class PointerScrollEvent extends PointerSignalEvent with _PointerEventDescriptio
     super.position,
     this.scrollDelta = Offset.zero,
     super.embedderId,
+    super.handledCallback,
   });
 
   @override

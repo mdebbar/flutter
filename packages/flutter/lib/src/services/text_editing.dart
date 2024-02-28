@@ -123,6 +123,12 @@ class TextSelection extends TextRange {
     return TextPosition(offset: extentOffset, affinity: affinity);
   }
 
+  /// Whether the selection [start] and [end] are inside of the bounds of the
+  /// given [text].
+  bool isWithinTextBounds(String text) {
+    return 0 <= start && start <= text.length && 0 <= end && end <= text.length;
+  }
+
   @override
   String toString() {
     final String typeName = objectRuntimeType(this, 'TextSelection');

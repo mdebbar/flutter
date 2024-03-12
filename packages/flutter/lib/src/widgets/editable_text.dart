@@ -74,7 +74,7 @@ typedef AppPrivateCommandCallback = void Function(String action, Map<String, dyn
 ///    [SelectableRegion].
 typedef EditableTextContextMenuBuilder = Widget Function(
   BuildContext context,
-  EditableTextState editableTextState,
+  EditableTextDefaultState editableTextState,
 );
 
 // Signature for a function that determines the target location of the given
@@ -563,6 +563,58 @@ class _DiscreteKeyFrameSimulation extends Simulation {
   }
 }
 
+/// The signature of functions that are replacing [EditableText.build].
+///
+/// See also:
+///
+/// * [EditableText], which provides basic text editing functionality.
+/// * [EditableTextCustomizer], which customizes [EditableText] widgets.
+typedef EditableTextBuilder = Widget Function(BuildContext, EditableText);
+
+/// Customizes [EditableText] widgets within a widget subtree.
+///
+/// ```
+/// class MyWidget extends StatelessWidget {
+///   const MyWidget({super.key});
+///
+///   @override
+///   Widget build(BuildContext context) {
+///     return EditableTextCustomizer(
+///       buildEditableText: (context, editableText) {
+///         return WebEditableText(editableText);
+///       },
+///       child: MaterialApp(
+///         home: Column(
+///           children: [
+///             TextField(...),
+///           ],
+///         ),
+///       ),
+///     );
+///   }
+/// }
+/// ```
+class EditableTextCustomizer extends InheritedWidget {
+  /// Constructs a customization for the [EditableText] widget within this
+  /// widget tree.
+  const EditableTextCustomizer({
+    super.key,
+    required this.buildEditableText,
+    required super.child,
+  });
+
+  /// The builder method that will be called by [EditableText] widgets.
+  final EditableTextBuilder buildEditableText;
+
+  static EditableTextBuilder _of(BuildContext context) {
+    final EditableTextCustomizer? editableTextCustomizer = context.dependOnInheritedWidgetOfExactType<EditableTextCustomizer>();
+    return editableTextCustomizer?.buildEditableText ?? EditableTextDefaultState.buildEditableText;
+  }
+
+  @override
+  bool updateShouldNotify(EditableTextCustomizer oldWidget) => buildEditableText != oldWidget.buildEditableText;
+}
+
 /// A basic text input field.
 ///
 /// This widget interacts with the [TextInput] service to let the user edit the
@@ -779,7 +831,7 @@ class _DiscreteKeyFrameSimulation extends Simulation {
 ///
 ///  * [TextField], which is a full-featured, material-design text input field
 ///    with placeholder text, labels, and [Form] integration.
-class EditableText extends StatefulWidget {
+class EditableText extends StatelessWidget {
   /// Creates a basic text input control.
   ///
   /// The [maxLines] property can be set to null to remove the restriction on
@@ -1927,7 +1979,10 @@ class EditableText extends StatefulWidget {
   /// {@macro flutter.widgets.magnifier.intro}
   final TextMagnifierConfiguration magnifierConfiguration;
 
-  bool get _userSelectionEnabled => enableInteractiveSelection && (!readOnly || !obscureText);
+  /// Whether user selection should be enabled or not.
+  ///
+  /// This is always false for read-only, obscure text.
+  bool get userSelectionEnabled => enableInteractiveSelection && (!readOnly || !obscureText);
 
   /// Returns the [ContextMenuButtonItem]s representing the buttons in this
   /// platform's default selection menu for an editable field.
@@ -2166,7 +2221,10 @@ class EditableText extends StatefulWidget {
   }
 
   @override
-  EditableTextState createState() => EditableTextState();
+  Widget build(BuildContext context) {
+    final EditableTextBuilder buildEditableText = EditableTextCustomizer._of(context);
+    return buildEditableText(context, this);
+  }
 
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
@@ -2202,8 +2260,24 @@ class EditableText extends StatefulWidget {
   }
 }
 
-/// State for a [EditableText].
-class EditableTextState extends State<EditableText> with AutomaticKeepAliveClientMixin<EditableText>, WidgetsBindingObserver, TickerProviderStateMixin<EditableText>, TextSelectionDelegate, TextInputClient implements AutofillClient {
+/// The default implementation used for [EditableText].
+class EditableTextDefault extends StatefulWidget {
+  const EditableTextDefault({super.key, required this.editableText});
+
+  final EditableText editableText;
+
+  @override
+  State<EditableTextDefault> createState() => EditableTextDefaultState();
+}
+
+/// State for a [EditableTextDefault].
+class EditableTextDefaultState extends State<EditableTextDefault> with AutomaticKeepAliveClientMixin<EditableTextDefault>, WidgetsBindingObserver, TickerProviderStateMixin<EditableTextDefault>, TextSelectionDelegate, TextInputClient implements AutofillClient {
+  EditableText get editableText => widget.editableText;
+
+  static EditableTextDefault buildEditableText(BuildContext _, EditableText editableText) {
+    return EditableTextDefault(editableText: editableText);
+  }
+
   Timer? _cursorTimer;
   AnimationController get _cursorBlinkOpacityController {
     return _backingCursorBlinkOpacityController ??= AnimationController(
@@ -2244,7 +2318,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   final GlobalKey _scrollableKey = GlobalKey();
   ScrollController? _internalScrollController;
-  ScrollController get _scrollController => widget.scrollController ?? (_internalScrollController ??= ScrollController());
+  ScrollController get _scrollController => editableText.scrollController ?? (_internalScrollController ??= ScrollController());
 
   final LayerLink _toolbarLayerLink = LayerLink();
   final LayerLink _startHandleLayerLink = LayerLink();
@@ -2256,7 +2330,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   @override
   AutofillScope? get currentAutofillScope => _currentAutofillScope;
 
-  AutofillClient get _effectiveAutofillClient => widget.autofillClient ?? this;
+  AutofillClient get _effectiveAutofillClient => editableText.autofillClient ?? this;
 
   late SpellCheckConfiguration _spellCheckConfiguration;
   late TextStyle _style;
@@ -2305,7 +2379,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// - cmd/ctrl+c shortcut to copy.
   /// - cmd/ctrl+a to select all.
   /// - Changing the selection using a physical keyboard.
-  bool get _shouldCreateInputConnection => kIsWeb || !widget.readOnly;
+  bool get _shouldCreateInputConnection => kIsWeb || !editableText.readOnly;
 
   // The time it takes for the floating cursor to snap to the text aligned
   // cursor position after the user has finished placing it.
@@ -2316,50 +2390,50 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   Orientation? _lastOrientation;
 
   @override
-  bool get wantKeepAlive => widget.focusNode.hasFocus;
+  bool get wantKeepAlive => editableText.focusNode.hasFocus;
 
   Color get _cursorColor {
-    final double effectiveOpacity = math.min(widget.cursorColor.alpha / 255.0, _cursorBlinkOpacityController.value);
-    return widget.cursorColor.withOpacity(effectiveOpacity);
+    final double effectiveOpacity = math.min(editableText.cursorColor.alpha / 255.0, _cursorBlinkOpacityController.value);
+    return editableText.cursorColor.withOpacity(effectiveOpacity);
   }
 
   @override
   bool get cutEnabled {
-    if (widget.selectionControls is! TextSelectionHandleControls) {
-      return widget.toolbarOptions.cut && !widget.readOnly && !widget.obscureText;
+    if (editableText.selectionControls is! TextSelectionHandleControls) {
+      return editableText.toolbarOptions.cut && !editableText.readOnly && !editableText.obscureText;
     }
-    return !widget.readOnly
-        && !widget.obscureText
+    return !editableText.readOnly
+        && !editableText.obscureText
         && !textEditingValue.selection.isCollapsed;
   }
 
   @override
   bool get copyEnabled {
-    if (widget.selectionControls is! TextSelectionHandleControls) {
-      return widget.toolbarOptions.copy && !widget.obscureText;
+    if (editableText.selectionControls is! TextSelectionHandleControls) {
+      return editableText.toolbarOptions.copy && !editableText.obscureText;
     }
-    return !widget.obscureText
+    return !editableText.obscureText
         && !textEditingValue.selection.isCollapsed;
   }
 
   @override
   bool get pasteEnabled {
-    if (widget.selectionControls is! TextSelectionHandleControls) {
-      return widget.toolbarOptions.paste && !widget.readOnly;
+    if (editableText.selectionControls is! TextSelectionHandleControls) {
+      return editableText.toolbarOptions.paste && !editableText.readOnly;
     }
-    return !widget.readOnly
+    return !editableText.readOnly
         && (clipboardStatus.value == ClipboardStatus.pasteable);
   }
 
   @override
   bool get selectAllEnabled {
-    if (widget.selectionControls is! TextSelectionHandleControls) {
-      return widget.toolbarOptions.selectAll && (!widget.readOnly || !widget.obscureText) && widget.enableInteractiveSelection;
+    if (editableText.selectionControls is! TextSelectionHandleControls) {
+      return editableText.toolbarOptions.selectAll && (!editableText.readOnly || !editableText.obscureText) && editableText.enableInteractiveSelection;
     }
 
-    if (!widget.enableInteractiveSelection
-        || (widget.readOnly
-            && widget.obscureText)) {
+    if (!editableText.enableInteractiveSelection
+        || (editableText.readOnly
+            && editableText.obscureText)) {
       return false;
     }
 
@@ -2384,7 +2458,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     if (defaultTargetPlatform != TargetPlatform.iOS) {
       return false;
     }
-    return !widget.obscureText
+    return !editableText.obscureText
         && !textEditingValue.selection.isCollapsed
         && textEditingValue.selection.textInside(textEditingValue.text).trim() != '';
   }
@@ -2395,7 +2469,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       return false;
     }
 
-    return !widget.obscureText
+    return !editableText.obscureText
         && !textEditingValue.selection.isCollapsed
         && textEditingValue.selection.textInside(textEditingValue.text).trim() != '';
   }
@@ -2405,7 +2479,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
       case TargetPlatform.iOS:
-        return !widget.obscureText
+        return !editableText.obscureText
             && !textEditingValue.selection.isCollapsed
             && textEditingValue.selection.textInside(textEditingValue.text).trim() != '';
       case TargetPlatform.macOS:
@@ -2419,8 +2493,8 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   @override
   bool get liveTextInputEnabled {
     return _liveTextInputStatus?.value == LiveTextInputStatus.enabled &&
-        !widget.obscureText &&
-        !widget.readOnly &&
+        !editableText.obscureText &&
+        !editableText.readOnly &&
         textEditingValue.selection.isCollapsed;
   }
 
@@ -2448,7 +2522,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   @override
   void copySelection(SelectionChangedCause cause) {
     final TextSelection selection = textEditingValue.selection;
-    if (selection.isCollapsed || widget.obscureText) {
+    if (selection.isCollapsed || editableText.obscureText) {
       return;
     }
     final String text = textEditingValue.text;
@@ -2481,7 +2555,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// Cut current selection to [Clipboard].
   @override
   void cutSelection(SelectionChangedCause cause) {
-    if (widget.readOnly || widget.obscureText) {
+    if (editableText.readOnly || editableText.obscureText) {
       return;
     }
     final TextSelection selection = textEditingValue.selection;
@@ -2504,7 +2578,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   bool get _allowPaste {
-    return !widget.readOnly && textEditingValue.selection.isValid;
+    return !editableText.readOnly && textEditingValue.selection.isValid;
   }
 
   /// Paste text from [Clipboard].
@@ -2553,7 +2627,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// Select the entire text value.
   @override
   void selectAll(SelectionChangedCause cause) {
-    if (widget.readOnly && widget.obscureText) {
+    if (editableText.readOnly && editableText.obscureText) {
       // If we can't modify it, and we can't copy it, there's no point in
       // selecting it.
       return;
@@ -2596,10 +2670,10 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   ///
   /// Throws an error if the selection is empty or collapsed.
   Future<void> lookUpSelection(SelectionChangedCause cause) async {
-    assert(!widget.obscureText);
+    assert(!editableText.obscureText);
 
     final String text = textEditingValue.selection.textInside(textEditingValue.text);
-    if (widget.obscureText || text.isEmpty) {
+    if (editableText.obscureText || text.isEmpty) {
       return;
     }
     await SystemChannels.platform.invokeMethod(
@@ -2616,8 +2690,8 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// When 'obscureText' is true or the selection is empty,
   /// this function will not do anything
   Future<void> searchWebForSelection(SelectionChangedCause cause) async {
-    assert(!widget.obscureText);
-    if (widget.obscureText) {
+    assert(!editableText.obscureText);
+    if (editableText.obscureText) {
       return;
     }
 
@@ -2638,8 +2712,8 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// When 'obscureText' is true or the selection is empty,
   /// this function will not do anything
   Future<void> shareSelection(SelectionChangedCause cause) async {
-    assert(!widget.obscureText);
-    if (widget.obscureText) {
+    assert(!editableText.obscureText);
+    if (editableText.obscureText) {
       return;
     }
 
@@ -2745,7 +2819,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     'This feature was deprecated after v3.3.0-0.5.pre.',
   )
   List<ContextMenuButtonItem>? buttonItemsForToolbarOptions([TargetPlatform? targetPlatform]) {
-    final ToolbarOptions toolbarOptions = widget.toolbarOptions;
+    final ToolbarOptions toolbarOptions = editableText.toolbarOptions;
     if (toolbarOptions == ToolbarOptions.empty) {
       return null;
     }
@@ -2782,7 +2856,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   /// Gets the line heights at the start and end of the selection for the given
-  /// [EditableTextState].
+  /// [EditableTextDefaultState].
   _GlyphHeights _getGlyphHeights() {
     final TextSelection selection = textEditingValue.selection;
 
@@ -2896,7 +2970,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   List<ContextMenuButtonItem> get _textProcessingActionButtonItems {
     final List<ContextMenuButtonItem> buttonItems = <ContextMenuButtonItem>[];
     final TextSelection selection = textEditingValue.selection;
-    if (widget.obscureText || !selection.isValid || selection.isCollapsed) {
+    if (editableText.obscureText || !selection.isValid || selection.isCollapsed) {
       return buttonItems;
     }
 
@@ -2906,7 +2980,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
         onPressed: () async {
           final String selectedText = selection.textInside(textEditingValue.text);
           if (selectedText.isNotEmpty) {
-            final String? processedText = await _processTextService.processTextAction(action.id, selectedText, widget.readOnly);
+            final String? processedText = await _processTextService.processTextAction(action.id, selectedText, editableText.readOnly);
             // If an activity does not return a modified version, just hide the toolbar.
             // Otherwise use the result to replace the selected text.
             if (processedText != null && _allowPaste) {
@@ -2928,10 +3002,10 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     super.initState();
     _liveTextInputStatus?.addListener(_onChangedLiveTextInputStatus);
     clipboardStatus.addListener(_onChangedClipboardStatus);
-    widget.controller.addListener(_didChangeTextEditingValue);
-    widget.focusNode.addListener(_handleFocusChanged);
-    _cursorVisibilityNotifier.value = widget.showCursor;
-    _spellCheckConfiguration = _inferSpellCheckConfiguration(widget.spellCheckConfiguration);
+    editableText.controller.addListener(_didChangeTextEditingValue);
+    editableText.focusNode.addListener(_handleFocusChanged);
+    _cursorVisibilityNotifier.value = editableText.showCursor;
+    _spellCheckConfiguration = _inferSpellCheckConfiguration(editableText.spellCheckConfiguration);
     _initProcessTextActions();
   }
 
@@ -2951,8 +3025,8 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     super.didChangeDependencies();
 
     _style = MediaQuery.boldTextOf(context)
-        ? widget.style.merge(const TextStyle(fontWeight: FontWeight.bold))
-        : widget.style;
+        ? editableText.style.merge(const TextStyle(fontWeight: FontWeight.bold))
+        : editableText.style;
 
     final AutofillGroupState? newAutofillGroup = AutofillGroup.maybeOf(context);
     if (currentAutofillScope != newAutofillGroup) {
@@ -2961,12 +3035,12 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       _currentAutofillScope?.register(_effectiveAutofillClient);
     }
 
-    if (!_didAutoFocus && widget.autofocus) {
+    if (!_didAutoFocus && editableText.autofocus) {
       _didAutoFocus = true;
       SchedulerBinding.instance.addPostFrameCallback((_) {
         if (mounted && renderEditable.hasSize) {
           _flagInternalFocus();
-          FocusScope.of(context).autofocus(widget.focusNode);
+          FocusScope.of(context).autofocus(editableText.focusNode);
         }
       }, debugLabel: 'EditableText.autofocus');
     }
@@ -3014,20 +3088,21 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   @override
-  void didUpdateWidget(EditableText oldWidget) {
+  void didUpdateWidget(EditableTextDefault oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.controller != oldWidget.controller) {
-      oldWidget.controller.removeListener(_didChangeTextEditingValue);
-      widget.controller.addListener(_didChangeTextEditingValue);
+    final EditableText oldEditableText = oldWidget.editableText;
+    if (editableText.controller != oldEditableText.controller) {
+      oldEditableText.controller.removeListener(_didChangeTextEditingValue);
+      editableText.controller.addListener(_didChangeTextEditingValue);
       _updateRemoteEditingValueIfNeeded();
     }
 
     if (_selectionOverlay != null
-        && (widget.contextMenuBuilder != oldWidget.contextMenuBuilder ||
-            widget.selectionControls != oldWidget.selectionControls ||
-            widget.onSelectionHandleTapped != oldWidget.onSelectionHandleTapped ||
-            widget.dragStartBehavior != oldWidget.dragStartBehavior ||
-            widget.magnifierConfiguration != oldWidget.magnifierConfiguration)) {
+        && (editableText.contextMenuBuilder != oldEditableText.contextMenuBuilder ||
+            editableText.selectionControls != oldEditableText.selectionControls ||
+            editableText.onSelectionHandleTapped != oldEditableText.onSelectionHandleTapped ||
+            editableText.dragStartBehavior != oldEditableText.dragStartBehavior ||
+            editableText.magnifierConfiguration != oldEditableText.magnifierConfiguration)) {
       final bool shouldShowToolbar = _selectionOverlay!.toolbarIsVisible;
       final bool shouldShowHandles = _selectionOverlay!.handlesVisible;
       _selectionOverlay!.dispose();
@@ -3042,25 +3117,25 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
           }
         });
       }
-    } else if (widget.controller.selection != oldWidget.controller.selection) {
+    } else if (editableText.controller.selection != oldEditableText.controller.selection) {
       _selectionOverlay?.update(_value);
     }
-    _selectionOverlay?.handlesVisible = widget.showSelectionHandles;
+    _selectionOverlay?.handlesVisible = editableText.showSelectionHandles;
 
-    if (widget.autofillClient != oldWidget.autofillClient) {
-      _currentAutofillScope?.unregister(oldWidget.autofillClient?.autofillId ?? autofillId);
+    if (editableText.autofillClient != oldEditableText.autofillClient) {
+      _currentAutofillScope?.unregister(oldEditableText.autofillClient?.autofillId ?? autofillId);
       _currentAutofillScope?.register(_effectiveAutofillClient);
     }
 
-    if (widget.focusNode != oldWidget.focusNode) {
-      oldWidget.focusNode.removeListener(_handleFocusChanged);
-      widget.focusNode.addListener(_handleFocusChanged);
+    if (editableText.focusNode != oldEditableText.focusNode) {
+      oldEditableText.focusNode.removeListener(_handleFocusChanged);
+      editableText.focusNode.addListener(_handleFocusChanged);
       updateKeepAlive();
     }
 
     if (!_shouldCreateInputConnection) {
       _closeInputConnectionIfNeeded();
-    } else if (oldWidget.readOnly && _hasFocus) {
+    } else if (oldEditableText.readOnly && _hasFocus) {
       // _openInputConnection must be called after layout information is available.
       // See https://github.com/flutter/flutter/issues/126312
       SchedulerBinding.instance.addPostFrameCallback((Duration _) {
@@ -3069,41 +3144,41 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     }
 
     if (kIsWeb && _hasInputConnection) {
-      if (oldWidget.readOnly != widget.readOnly) {
+      if (oldEditableText.readOnly != editableText.readOnly) {
         _textInputConnection!.updateConfig(_effectiveAutofillClient.textInputConfiguration);
       }
     }
 
     if (_hasInputConnection) {
-      if (oldWidget.obscureText != widget.obscureText) {
+      if (oldEditableText.obscureText != editableText.obscureText) {
         _textInputConnection!.updateConfig(_effectiveAutofillClient.textInputConfiguration);
       }
     }
 
-    if (widget.style != oldWidget.style) {
+    if (editableText.style != oldEditableText.style) {
       // The _textInputConnection will pick up the new style when it attaches in
       // _openInputConnection.
       _style = MediaQuery.boldTextOf(context)
-          ? widget.style.merge(const TextStyle(fontWeight: FontWeight.bold))
-          : widget.style;
+          ? editableText.style.merge(const TextStyle(fontWeight: FontWeight.bold))
+          : editableText.style;
       if (_hasInputConnection) {
         _textInputConnection!.setStyle(
           fontFamily: _style.fontFamily,
           fontSize: _style.fontSize,
           fontWeight: _style.fontWeight,
           textDirection: _textDirection,
-          textAlign: widget.textAlign,
+          textAlign: editableText.textAlign,
         );
       }
     }
 
-    if (widget.showCursor != oldWidget.showCursor) {
+    if (editableText.showCursor != oldEditableText.showCursor) {
       _startOrStopCursorTimerIfNeeded();
     }
-    final bool canPaste = widget.selectionControls is TextSelectionHandleControls
+    final bool canPaste = editableText.selectionControls is TextSelectionHandleControls
         ? pasteEnabled
-        : widget.selectionControls?.canPaste(this) ?? false;
-    if (widget.selectionEnabled && pasteEnabled && canPaste) {
+        : editableText.selectionControls?.canPaste(this) ?? false;
+    if (editableText.selectionEnabled && pasteEnabled && canPaste) {
       clipboardStatus.update();
     }
   }
@@ -3120,7 +3195,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   void dispose() {
     _internalScrollController?.dispose();
     _currentAutofillScope?.unregister(autofillId);
-    widget.controller.removeListener(_didChangeTextEditingValue);
+    editableText.controller.removeListener(_didChangeTextEditingValue);
     _floatingCursorResetController?.dispose();
     _floatingCursorResetController = null;
     _closeInputConnectionIfNeeded();
@@ -3131,7 +3206,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     _backingCursorBlinkOpacityController = null;
     _selectionOverlay?.dispose();
     _selectionOverlay = null;
-    widget.focusNode.removeListener(_handleFocusChanged);
+    editableText.focusNode.removeListener(_handleFocusChanged);
     WidgetsBinding.instance.removeObserver(this);
     _liveTextInputStatus?.removeListener(_onChangedLiveTextInputStatus);
     _liveTextInputStatus?.dispose();
@@ -3149,7 +3224,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// The last known [TextEditingValue] of the platform text input plugin.
   ///
   /// This value is updated when the platform text input plugin sends a new
-  /// update via [updateEditingValue], or when [EditableText] calls
+  /// update via [updateEditingValue], or when [EditableTextDefault] calls
   /// [TextInputConnection.setEditingState] to overwrite the platform text input
   /// plugin's [TextEditingValue].
   ///
@@ -3163,8 +3238,8 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   @override
   void updateEditingValue(TextEditingValue value) {
     // This method handles text editing state updates from the platform text
-    // input plugin. The [EditableText] may not have the focus or an open input
-    // connection, as autofill can update a disconnected [EditableText].
+    // input plugin. The [EditableTextDefault] may not have the focus or an open input
+    // connection, as autofill can update a disconnected [EditableTextDefault].
 
     // Since we still have to support keyboard select, this is the best place
     // to disable text updating.
@@ -3176,7 +3251,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       value = value.copyWith(selection: value.selection.copyWith(affinity: _value.selection.affinity));
     }
 
-    if (widget.readOnly) {
+    if (editableText.readOnly) {
       // In the read-only case, we only care about selection changes, and reject
       // everything else.
       value = _value.copyWith(selection: value.selection);
@@ -3212,7 +3287,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       _currentPromptRectRange = null;
 
       final bool revealObscuredInput = _hasInputConnection
-                                    && widget.obscureText
+                                    && editableText.obscureText
                                     && WidgetsBinding.instance.platformDispatcher.brieflyShowPassword
                                     && value.text.length == _value.text.length + 1;
 
@@ -3273,13 +3348,13 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   @override
   void performPrivateCommand(String action, Map<String, dynamic> data) {
-    widget.onAppPrivateCommand?.call(action, data);
+    editableText.onAppPrivateCommand?.call(action, data);
   }
 
   @override
   void insertContent(KeyboardInsertedContent content) {
-    assert(widget.contentInsertionConfiguration?.allowedMimeTypes.contains(content.mimeType) ?? false);
-    widget.contentInsertionConfiguration?.onContentInserted.call(content);
+    assert(editableText.contentInsertionConfiguration?.allowedMimeTypes.contains(content.mimeType) ?? false);
+    editableText.contentInsertionConfiguration?.onContentInserted.call(content);
   }
 
   // The original position of the caret on FloatingCursorDragState.start.
@@ -3393,9 +3468,9 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   @pragma('vm:notify-debugger-on-exception')
   void _finalizeEditing(TextInputAction action, {required bool shouldUnfocus}) {
     // Take any actions necessary now that the user has completed editing.
-    if (widget.onEditingComplete != null) {
+    if (editableText.onEditingComplete != null) {
       try {
-        widget.onEditingComplete!();
+        editableText.onEditingComplete!();
       } catch (exception, stack) {
         FlutterError.reportError(FlutterErrorDetails(
           exception: exception,
@@ -3408,7 +3483,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       // Default behavior if the developer did not provide an
       // onEditingComplete callback: Finalize editing and remove focus, or move
       // it to the next/previous field, depending on the action.
-      widget.controller.clearComposing();
+      editableText.controller.clearComposing();
       if (shouldUnfocus) {
         switch (action) {
           case TextInputAction.none:
@@ -3422,16 +3497,16 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
           case TextInputAction.route:
           case TextInputAction.emergencyCall:
           case TextInputAction.newline:
-            widget.focusNode.unfocus();
+            editableText.focusNode.unfocus();
           case TextInputAction.next:
-            widget.focusNode.nextFocus();
+            editableText.focusNode.nextFocus();
           case TextInputAction.previous:
-            widget.focusNode.previousFocus();
+            editableText.focusNode.previousFocus();
         }
       }
     }
 
-    final ValueChanged<String>? onSubmitted = widget.onSubmitted;
+    final ValueChanged<String>? onSubmitted = editableText.onSubmitted;
     if (onSubmitted == null) {
       return;
     }
@@ -3478,7 +3553,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// Ends the current batch edit started by the last call to [beginBatchEdit],
   /// and send [currentTextEditingValue] to the text input plugin if needed.
   ///
-  /// Throws an error in debug mode if this [EditableText] is not in a batch
+  /// Throws an error in debug mode if this [EditableTextDefault] is not in a batch
   /// edit.
   void endBatchEdit() {
     _batchEditDepth -= 1;
@@ -3501,13 +3576,13 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     _lastKnownRemoteTextEditingValue = localValue;
   }
 
-  TextEditingValue get _value => widget.controller.value;
+  TextEditingValue get _value => editableText.controller.value;
   set _value(TextEditingValue value) {
-    widget.controller.value = value;
+    editableText.controller.value = value;
   }
 
-  bool get _hasFocus => widget.focusNode.hasFocus;
-  bool get _isMultiline => widget.maxLines != 1;
+  bool get _hasFocus => editableText.focusNode.hasFocus;
+  bool get _isMultiline => editableText.maxLines != 1;
 
   // Finds the closest scroll offset to the current scroll offset that fully
   // reveals the given caret rect. If the given rect's main axis extent is too
@@ -3595,7 +3670,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
           fontSize: _style.fontSize,
           fontWeight: _style.fontWeight,
           textDirection: _textDirection,
-          textAlign: widget.textAlign,
+          textAlign: editableText.textAlign,
         )
         ..setEditingState(localValue)
         ..show();
@@ -3621,11 +3696,11 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   void _openOrCloseInputConnectionIfNeeded() {
-    if (_hasFocus && widget.focusNode.consumeKeyboardToken()) {
+    if (_hasFocus && editableText.focusNode.consumeKeyboardToken()) {
       _openInputConnection();
     } else if (!_hasFocus) {
       _closeInputConnectionIfNeeded();
-      widget.controller.clearComposing();
+      editableText.controller.clearComposing();
     }
   }
 
@@ -3663,7 +3738,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
         fontSize: _style.fontSize,
         fontWeight: _style.fontWeight,
         textDirection: _textDirection,
-        textAlign: widget.textAlign,
+        textAlign: editableText.textAlign,
       )
       ..setEditingState(_value);
     _lastKnownRemoteTextEditingValue = _value;
@@ -3684,12 +3759,12 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       _textInputConnection!.connectionClosedReceived();
       _textInputConnection = null;
       _lastKnownRemoteTextEditingValue = null;
-      widget.focusNode.unfocus();
+      editableText.focusNode.unfocus();
     }
   }
 
   // Indicates that a call to _handleFocusChanged originated within
-  // EditableText, allowing it to distinguish between internal and external
+  // EditableTextDefault, allowing it to distinguish between internal and external
   // focus changes.
   bool _nextFocusChangeIsInternal = false;
 
@@ -3717,7 +3792,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       _openInputConnection();
     } else {
       _flagInternalFocus();
-      widget.focusNode.requestFocus(); // This eventually calls _openInputConnection also, see _handleFocusChanged.
+      editableText.focusNode.requestFocus(); // This eventually calls _openInputConnection also, see _handleFocusChanged.
     }
   }
 
@@ -3890,7 +3965,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   TextSelectionOverlay _createSelectionOverlay() {
-    final EditableTextContextMenuBuilder? contextMenuBuilder = widget.contextMenuBuilder;
+    final EditableTextContextMenuBuilder? contextMenuBuilder = editableText.contextMenuBuilder;
     final TextSelectionOverlay selectionOverlay = TextSelectionOverlay(
       clipboardStatus: clipboardStatus,
       context: context,
@@ -3900,10 +3975,10 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       startHandleLayerLink: _startHandleLayerLink,
       endHandleLayerLink: _endHandleLayerLink,
       renderObject: renderEditable,
-      selectionControls: widget.selectionControls,
+      selectionControls: editableText.selectionControls,
       selectionDelegate: this,
-      dragStartBehavior: widget.dragStartBehavior,
-      onSelectionHandleTapped: widget.onSelectionHandleTapped,
+      dragStartBehavior: editableText.dragStartBehavior,
+      onSelectionHandleTapped: editableText.onSelectionHandleTapped,
       contextMenuBuilder: contextMenuBuilder == null || _webContextMenuEnabled
         ? null
         : (BuildContext context) {
@@ -3912,7 +3987,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
             this,
           );
         },
-      magnifierConfiguration: widget.magnifierConfiguration,
+      magnifierConfiguration: editableText.magnifierConfiguration,
     );
 
     return selectionOverlay;
@@ -3923,11 +3998,11 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     // We return early if the selection is not valid. This can happen when the
     // text of [EditableText] is updated at the same time as the selection is
     // changed by a gesture event.
-    if (!widget.controller._isSelectionWithinTextBounds(selection)) {
+    if (!editableText.controller._isSelectionWithinTextBounds(selection)) {
       return;
     }
 
-    widget.controller.selection = selection;
+    editableText.controller.selection = selection;
 
     // This will show the keyboard for all selection changes on the
     // EditableText except for those triggered by a keyboard input.
@@ -3949,7 +4024,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
           requestKeyboard();
         }
     }
-    if (widget.selectionControls == null && widget.contextMenuBuilder == null) {
+    if (editableText.selectionControls == null && editableText.contextMenuBuilder == null) {
       _selectionOverlay?.dispose();
       _selectionOverlay = null;
     } else {
@@ -3958,14 +4033,14 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       } else {
         _selectionOverlay!.update(_value);
       }
-      _selectionOverlay!.handlesVisible = widget.showSelectionHandles;
+      _selectionOverlay!.handlesVisible = editableText.showSelectionHandles;
       _selectionOverlay!.showHandles();
     }
     // TODO(chunhtai): we should make sure selection actually changed before
     // we call the onSelectionChanged.
     // https://github.com/flutter/flutter/issues/76349.
     try {
-      widget.onSelectionChanged?.call(selection, cause);
+      editableText.onSelectionChanged?.call(selection, cause);
     } catch (exception, stack) {
       FlutterError.reportError(FlutterErrorDetails(
         exception: exception,
@@ -4009,7 +4084,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
       // Enlarge the target rect by scrollPadding to ensure that caret is not
       // positioned directly at the edge after scrolling.
-      double bottomSpacing = widget.scrollPadding.bottom;
+      double bottomSpacing = editableText.scrollPadding.bottom;
       if (_selectionOverlay?.selectionControls != null) {
         final double handleHeight = _selectionOverlay!.selectionControls!
           .getHandleSize(lineHeight).height;
@@ -4029,7 +4104,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
         );
       }
 
-      final EdgeInsets caretPadding = widget.scrollPadding
+      final EdgeInsets caretPadding = editableText.scrollPadding
         .copyWith(bottom: bottomSpacing);
 
       final Rect caretRect = renderEditable.getLocalRectForCaret(renderEditable.selection!.extent);
@@ -4095,7 +4170,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   Future<void> _performSpellCheck(final String text) async {
     try {
-      final Locale? localeForSpellChecking = widget.locale ?? Localizations.maybeLocaleOf(context);
+      final Locale? localeForSpellChecking = editableText.locale ?? Localizations.maybeLocaleOf(context);
 
       assert(
         localeForSpellChecking != null,
@@ -4141,7 +4216,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       // will keep trying to modify the composing region while Gboard will keep
       // trying to restore the original composing region.
       try {
-        value = widget.inputFormatters?.fold<TextEditingValue>(
+        value = editableText.inputFormatters?.fold<TextEditingValue>(
           value,
           (TextEditingValue newValue, TextInputFormatter formatter) => formatter.formatEditUpdate(_value, newValue),
         ) ?? value;
@@ -4179,7 +4254,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     final String currentText = _value.text;
     if (oldValue.text != currentText) {
       try {
-        widget.onChanged?.call(currentText);
+        editableText.onChanged?.call(currentText);
       } catch (exception, stack) {
         FlutterError.reportError(FlutterErrorDetails(
           exception: exception,
@@ -4215,12 +4290,12 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   void _onCursorColorTick() {
-    final double effectiveOpacity = math.min(widget.cursorColor.alpha / 255.0, _cursorBlinkOpacityController.value);
-    renderEditable.cursorColor = widget.cursorColor.withOpacity(effectiveOpacity);
-    _cursorVisibilityNotifier.value = widget.showCursor && (EditableText.debugDeterministicCursor || _cursorBlinkOpacityController.value > 0);
+    final double effectiveOpacity = math.min(editableText.cursorColor.alpha / 255.0, _cursorBlinkOpacityController.value);
+    renderEditable.cursorColor = editableText.cursorColor.withOpacity(effectiveOpacity);
+    _cursorVisibilityNotifier.value = editableText.showCursor && (EditableText.debugDeterministicCursor || _cursorBlinkOpacityController.value > 0);
   }
 
-  bool get _showBlinkingCursor => _hasFocus && _value.selection.isCollapsed && widget.showCursor && _tickersEnabled && !renderEditable.floatingCursorOn;
+  bool get _showBlinkingCursor => _hasFocus && _value.selection.isCollapsed && editableText.showCursor && _tickersEnabled && !renderEditable.floatingCursorOn;
 
   /// Whether the blinking cursor is actually visible at this precise moment
   /// (it's hidden half the time, since it blinks).
@@ -4242,7 +4317,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   void _startCursorBlink() {
     assert(!(_cursorTimer?.isActive ?? false) || !(_backingCursorBlinkOpacityController?.isAnimating ?? false));
-    if (!widget.showCursor) {
+    if (!editableText.showCursor) {
       return;
     }
     if (!_tickersEnabled) {
@@ -4253,7 +4328,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     if (EditableText.debugDeterministicCursor) {
       return;
     }
-    if (widget.cursorOpacityAnimates) {
+    if (editableText.cursorOpacityAnimates) {
       _cursorBlinkOpacityController.animateWith(_iosBlinkCursorSimulation).whenComplete(_onCursorTick);
     } else {
       _cursorTimer = Timer.periodic(_kCursorBlinkHalfPeriod, (Timer timer) { _onCursorTick(); });
@@ -4270,7 +4345,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       }
     }
 
-    if (widget.cursorOpacityAnimates) {
+    if (editableText.cursorOpacityAnimates) {
       _cursorTimer?.cancel();
       // Schedule this as an async task to avoid blocking tester.pumpAndSettle
       // indefinitely.
@@ -4308,16 +4383,16 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       // the end. Does not rely on _handleFocusChanged because it makes selection
       // handles visible on Android.
       // Unregister as a listener to the text controller while making the change.
-      widget.controller.removeListener(_didChangeTextEditingValue);
-      widget.controller.selection = _adjustedSelectionWhenFocused()!;
-      widget.controller.addListener(_didChangeTextEditingValue);
+      editableText.controller.removeListener(_didChangeTextEditingValue);
+      editableText.controller.selection = _adjustedSelectionWhenFocused()!;
+      editableText.controller.addListener(_didChangeTextEditingValue);
     }
     _updateRemoteEditingValueIfNeeded();
     _startOrStopCursorTimerIfNeeded();
     _updateOrDisposeSelectionOverlayIfNeeded();
     // TODO(abarth): Teach RenderEditable about ValueNotifier<TextEditingValue>
     // to avoid this setState().
-    setState(() { /* We use widget.controller.value in build(). */ });
+    setState(() { /* We use editableText.controller.value in build(). */ });
     _verticalSelectionUpdateAction.stopCurrentVerticalRunIfSelectionChanges();
   }
 
@@ -4329,7 +4404,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       // Listen for changing viewInsets, which indicates keyboard showing up.
       WidgetsBinding.instance.addObserver(this);
       _lastBottomViewInset = View.of(context).viewInsets.bottom;
-      if (!widget.readOnly) {
+      if (!editableText.readOnly) {
         _scheduleShowCaretOnScreen(withAnimation: true);
       }
       final TextSelection? updatedSelection = _adjustedSelectionWhenFocused();
@@ -4345,7 +4420,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   TextSelection? _adjustedSelectionWhenFocused() {
     TextSelection? selection;
-    final bool shouldSelectAll = widget.selectionEnabled && kIsWeb
+    final bool shouldSelectAll = editableText.selectionEnabled && kIsWeb
         && !_isMultiline && !_nextFocusChangeIsInternal;
     if (shouldSelectAll) {
       // On native web, single line <input> tags select all when receiving
@@ -4396,7 +4471,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   _ScribbleCacheKey? _scribbleCacheKey;
 
   void _updateSelectionRects({bool force = false}) {
-    if (!widget.scribbleEnabled || defaultTargetPlatform != TargetPlatform.iOS) {
+    if (!editableText.scribbleEnabled || defaultTargetPlatform != TargetPlatform.iOS) {
       return;
     }
 
@@ -4406,7 +4481,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     }
 
     final InlineSpan inlineSpan = renderEditable.text!;
-    final TextScaler effectiveTextScaler = switch ((widget.textScaler, widget.textScaleFactor)) {
+    final TextScaler effectiveTextScaler = switch ((editableText.textScaler, editableText.textScaleFactor)) {
       (final TextScaler textScaler, _)     => textScaler,
       (null, final double textScaleFactor) => TextScaler.linear(textScaleFactor),
       (null, null)                         => MediaQuery.textScalerOf(context),
@@ -4414,12 +4489,12 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
     final _ScribbleCacheKey newCacheKey = _ScribbleCacheKey(
       inlineSpan: inlineSpan,
-      textAlign: widget.textAlign,
+      textAlign: editableText.textAlign,
       textDirection: _textDirection,
       textScaler: effectiveTextScaler,
-      textHeightBehavior: widget.textHeightBehavior ?? DefaultTextHeightBehavior.maybeOf(context),
-      locale: widget.locale,
-      structStyle: widget.strutStyle,
+      textHeightBehavior: editableText.textHeightBehavior ?? DefaultTextHeightBehavior.maybeOf(context),
+      locale: editableText.locale,
+      structStyle: editableText.strutStyle,
       placeholder: _placeholderLocation,
       size: renderEditable.size,
     );
@@ -4507,7 +4582,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     _textInputConnection!.setCaretRect(caretRect);
   }
 
-  TextDirection get _textDirection => widget.textDirection ?? Directionality.of(context);
+  TextDirection get _textDirection => editableText.textDirection ?? Directionality.of(context);
 
   /// The renderer for this widget's descendant.
   ///
@@ -4524,7 +4599,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   void userUpdateTextEditingValue(TextEditingValue value, SelectionChangedCause? cause) {
     // Compare the current TextEditingValue with the pre-format new
     // TextEditingValue value, in case the formatter would reject the change.
-    final bool shouldShowCaret = widget.readOnly
+    final bool shouldShowCaret = editableText.readOnly
       ? _value.selection != value.selection
       : _value != value;
     if (shouldShowCaret) {
@@ -4535,9 +4610,9 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     // the selection overlay. For example, this happens when right clicking an
     // unfocused field that previously had a selection in the same spot.
     if (value == textEditingValue) {
-      if (!widget.focusNode.hasFocus) {
+      if (!editableText.focusNode.hasFocus) {
         _flagInternalFocus();
-        widget.focusNode.requestFocus();
+        editableText.focusNode.requestFocus();
         _selectionOverlay ??= _createSelectionOverlay();
       }
       return;
@@ -4619,7 +4694,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     // https://github.com/flutter/flutter/issues/123560.
     if (!spellCheckEnabled
         || _webContextMenuEnabled
-        || widget.readOnly
+        || editableText.readOnly
         || _selectionOverlay == null
         || !_spellCheckResultsReceived
         || findSuggestionSpanAtCursorIndex(textEditingValue.selection.extentOffset) == null) {
@@ -4688,22 +4763,22 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   @override
   void insertTextPlaceholder(Size size) {
-    if (!widget.scribbleEnabled) {
+    if (!editableText.scribbleEnabled) {
       return;
     }
 
-    if (!widget.controller.selection.isValid) {
+    if (!editableText.controller.selection.isValid) {
       return;
     }
 
     setState(() {
-      _placeholderLocation = _value.text.length - widget.controller.selection.end;
+      _placeholderLocation = _value.text.length - editableText.controller.selection.end;
     });
   }
 
   @override
   void removeTextPlaceholder() {
-    if (!widget.scribbleEnabled || _placeholderLocation == -1) {
+    if (!editableText.scribbleEnabled || _placeholderLocation == -1) {
       return;
     }
 
@@ -4729,7 +4804,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   @override
   TextInputConfiguration get textInputConfiguration {
-    final List<String>? autofillHints = widget.autofillHints?.toList(growable: false);
+    final List<String>? autofillHints = editableText.autofillHints?.toList(growable: false);
     final AutofillConfiguration autofillConfiguration = autofillHints != null
       ? AutofillConfiguration(
           uniqueIdentifier: autofillId,
@@ -4739,25 +4814,25 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       : AutofillConfiguration.disabled;
 
     return TextInputConfiguration(
-      inputType: widget.keyboardType,
-      readOnly: widget.readOnly,
-      obscureText: widget.obscureText,
-      autocorrect: widget.autocorrect,
-      smartDashesType: widget.smartDashesType,
-      smartQuotesType: widget.smartQuotesType,
-      enableSuggestions: widget.enableSuggestions,
-      enableInteractiveSelection: widget._userSelectionEnabled,
-      inputAction: widget.textInputAction ?? (widget.keyboardType == TextInputType.multiline
+      inputType: editableText.keyboardType,
+      readOnly: editableText.readOnly,
+      obscureText: editableText.obscureText,
+      autocorrect: editableText.autocorrect,
+      smartDashesType: editableText.smartDashesType,
+      smartQuotesType: editableText.smartQuotesType,
+      enableSuggestions: editableText.enableSuggestions,
+      enableInteractiveSelection: editableText.userSelectionEnabled,
+      inputAction: editableText.textInputAction ?? (editableText.keyboardType == TextInputType.multiline
         ? TextInputAction.newline
         : TextInputAction.done
       ),
-      textCapitalization: widget.textCapitalization,
-      keyboardAppearance: widget.keyboardAppearance,
+      textCapitalization: editableText.textCapitalization,
+      keyboardAppearance: editableText.keyboardAppearance,
       autofillConfiguration: autofillConfiguration,
-      enableIMEPersonalizedLearning: widget.enableIMEPersonalizedLearning,
-      allowedMimeTypes: widget.contentInsertionConfiguration == null
+      enableIMEPersonalizedLearning: editableText.enableIMEPersonalizedLearning,
+      allowedMimeTypes: editableText.contentInsertionConfiguration == null
         ? const <String>[]
-        : widget.contentInsertionConfiguration!.allowedMimeTypes,
+        : editableText.contentInsertionConfiguration!.allowedMimeTypes,
     );
   }
 
@@ -4775,11 +4850,11 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   VoidCallback? _semanticsOnCopy(TextSelectionControls? controls) {
-    return widget.selectionEnabled
+    return editableText.selectionEnabled
         && _hasFocus
-        && (widget.selectionControls is TextSelectionHandleControls
+        && (editableText.selectionControls is TextSelectionHandleControls
             ? copyEnabled
-            : copyEnabled && (widget.selectionControls?.canCopy(this) ?? false))
+            : copyEnabled && (editableText.selectionControls?.canCopy(this) ?? false))
       ? () {
         controls?.handleCopy(this);
         copySelection(SelectionChangedCause.toolbar);
@@ -4788,11 +4863,11 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   VoidCallback? _semanticsOnCut(TextSelectionControls? controls) {
-    return widget.selectionEnabled
+    return editableText.selectionEnabled
         && _hasFocus
-        && (widget.selectionControls is TextSelectionHandleControls
+        && (editableText.selectionControls is TextSelectionHandleControls
             ? cutEnabled
-            : cutEnabled && (widget.selectionControls?.canCut(this) ?? false))
+            : cutEnabled && (editableText.selectionControls?.canCut(this) ?? false))
       ? () {
         controls?.handleCut(this);
         cutSelection(SelectionChangedCause.toolbar);
@@ -4801,11 +4876,11 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   }
 
   VoidCallback? _semanticsOnPaste(TextSelectionControls? controls) {
-    return widget.selectionEnabled
+    return editableText.selectionEnabled
         && _hasFocus
-        && (widget.selectionControls is TextSelectionHandleControls
+        && (editableText.selectionControls is TextSelectionHandleControls
             ? pasteEnabled
-            : pasteEnabled && (widget.selectionControls?.canPaste(this) ?? false))
+            : pasteEnabled && (editableText.selectionControls?.canPaste(this) ?? false))
         && (clipboardStatus.value == ClipboardStatus.pasteable)
       ? () {
         controls?.handlePaste(this);
@@ -4867,9 +4942,9 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
 
   // --------------------------- Text Editing Actions ---------------------------
 
-  TextBoundary _characterBoundary() => widget.obscureText ? _CodePointBoundary(_value.text) : CharacterBoundary(_value.text);
-  TextBoundary _nextWordBoundary() => widget.obscureText ? _documentBoundary() : renderEditable.wordBoundaries.moveByWordBoundary;
-  TextBoundary _linebreak() => widget.obscureText ? _documentBoundary() : LineBoundary(renderEditable);
+  TextBoundary _characterBoundary() => editableText.obscureText ? _CodePointBoundary(_value.text) : CharacterBoundary(_value.text);
+  TextBoundary _nextWordBoundary() => editableText.obscureText ? _documentBoundary() : renderEditable.wordBoundaries.moveByWordBoundary;
+  TextBoundary _linebreak() => editableText.obscureText ? _documentBoundary() : LineBoundary(renderEditable);
   TextBoundary _paragraphBoundary() => ParagraphBoundary(_value.text);
   TextBoundary _documentBoundary() => DocumentBoundary(_value.text);
 
@@ -4953,7 +5028,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     }
 
     final ScrollPosition position = _scrollController.position;
-    if (widget.maxLines == 1) {
+    if (editableText.maxLines == 1) {
       _scrollController.jumpTo(position.maxScrollExtent);
       return;
     }
@@ -4980,7 +5055,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// Extend the selection down by page if the `forward` parameter is true, or
   /// up by page otherwise.
   void _extendSelectionByPage(ExtendSelectionByPageIntent intent) {
-    if (widget.maxLines == 1) {
+    if (editableText.maxLines == 1) {
       return;
     }
 
@@ -5080,20 +5155,20 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
         switch (event.kind) {
           case ui.PointerDeviceKind.touch:
             if (kIsWeb) {
-              widget.focusNode.unfocus();
+              editableText.focusNode.unfocus();
             }
           case ui.PointerDeviceKind.mouse:
           case ui.PointerDeviceKind.stylus:
           case ui.PointerDeviceKind.invertedStylus:
           case ui.PointerDeviceKind.unknown:
-            widget.focusNode.unfocus();
+            editableText.focusNode.unfocus();
           case ui.PointerDeviceKind.trackpad:
             throw UnimplementedError('Unexpected pointer down event for trackpad');
         }
       case TargetPlatform.linux:
       case TargetPlatform.macOS:
       case TargetPlatform.windows:
-        widget.focusNode.unfocus();
+        editableText.focusNode.unfocus();
     }
   }
 
@@ -5140,8 +5215,8 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     assert(debugCheckHasMediaQuery(context));
     super.build(context); // See AutomaticKeepAliveClientMixin.
 
-    final TextSelectionControls? controls = widget.selectionControls;
-    final TextScaler effectiveTextScaler = switch ((widget.textScaler, widget.textScaleFactor)) {
+    final TextSelectionControls? controls = editableText.selectionControls;
+    final TextScaler effectiveTextScaler = switch ((editableText.textScaler, editableText.textScaleFactor)) {
       (final TextScaler textScaler, _)     => textScaler,
       (null, final double textScaleFactor) => TextScaler.linear(textScaleFactor),
       (null, null)                         => MediaQuery.textScalerOf(context),
@@ -5151,14 +5226,14 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
       compositeCallback: _compositeCallback,
       enabled: _hasInputConnection,
       child: TextFieldTapRegion(
-        onTapOutside: _hasFocus ? widget.onTapOutside ?? _defaultOnTapOutside : null,
+        onTapOutside: _hasFocus ? editableText.onTapOutside ?? _defaultOnTapOutside : null,
         debugLabel: kReleaseMode ? null : 'EditableText',
         child: MouseRegion(
-          cursor: widget.mouseCursor ?? SystemMouseCursors.text,
+          cursor: editableText.mouseCursor ?? SystemMouseCursors.text,
           child: Actions(
             actions: _actions,
             child: UndoHistory<TextEditingValue>(
-              value: widget.controller,
+              value: editableText.controller,
               onTriggered: (TextEditingValue value) {
                 userUpdateTextEditingValue(value, SelectionChangedCause.keyboard);
               },
@@ -5178,7 +5253,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
                   case TargetPlatform.linux:
                   case TargetPlatform.windows:
                     // Composing text is not counted in history coalescing.
-                    if (!widget.controller.value.composing.isCollapsed) {
+                    if (!editableText.controller.value.composing.isCollapsed) {
                       return false;
                     }
                   case TargetPlatform.android:
@@ -5197,10 +5272,10 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
                 // region is changed by the framework.
                 return defaultTargetPlatform == TargetPlatform.android ? value.copyWith(composing: TextRange.empty) : value;
               },
-              focusNode: widget.focusNode,
-              controller: widget.undoController,
+              focusNode: editableText.focusNode,
+              controller: editableText.undoController,
               child: Focus(
-                focusNode: widget.focusNode,
+                focusNode: editableText.focusNode,
                 includeSemantics: false,
                 debugLabel: kReleaseMode ? null : 'EditableText',
                 child: NotificationListener<ScrollNotification>(
@@ -5214,13 +5289,13 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
                     excludeFromSemantics: true,
                     axisDirection: _isMultiline ? AxisDirection.down : AxisDirection.right,
                     controller: _scrollController,
-                    physics: widget.scrollPhysics,
-                    dragStartBehavior: widget.dragStartBehavior,
-                    restorationId: widget.restorationId,
+                    physics: editableText.scrollPhysics,
+                    dragStartBehavior: editableText.dragStartBehavior,
+                    restorationId: editableText.restorationId,
                     // If a ScrollBehavior is not provided, only apply scrollbars when
                     // multiline. The overscroll indicator should not be applied in
                     // either case, glowing or stretching.
-                    scrollBehavior: widget.scrollBehavior ?? ScrollConfiguration.of(context).copyWith(
+                    scrollBehavior: editableText.scrollBehavior ?? ScrollConfiguration.of(context).copyWith(
                       scrollbars: _isMultiline,
                       overscroll: false,
                     ),
@@ -5232,9 +5307,9 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
                           onCut: _semanticsOnCut(controls),
                           onPaste: _semanticsOnPaste(controls),
                           child: _ScribbleFocusable(
-                            focusNode: widget.focusNode,
+                            focusNode: editableText.focusNode,
                             editableKey: _editableKey,
-                            enabled: widget.scribbleEnabled,
+                            enabled: editableText.scribbleEnabled,
                             updateSelectionRects: () {
                               _openInputConnection();
                               _updateSelectionRects(force: true);
@@ -5247,41 +5322,41 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
                                 inlineSpan: buildTextSpan(),
                                 value: _value,
                                 cursorColor: _cursorColor,
-                                backgroundCursorColor: widget.backgroundCursorColor,
+                                backgroundCursorColor: editableText.backgroundCursorColor,
                                 showCursor: _cursorVisibilityNotifier,
-                                forceLine: widget.forceLine,
-                                readOnly: widget.readOnly,
+                                forceLine: editableText.forceLine,
+                                readOnly: editableText.readOnly,
                                 hasFocus: _hasFocus,
-                                maxLines: widget.maxLines,
-                                minLines: widget.minLines,
-                                expands: widget.expands,
-                                strutStyle: widget.strutStyle,
+                                maxLines: editableText.maxLines,
+                                minLines: editableText.minLines,
+                                expands: editableText.expands,
+                                strutStyle: editableText.strutStyle,
                                 selectionColor: _selectionOverlay?.spellCheckToolbarIsVisible ?? false
-                                    ? _spellCheckConfiguration.misspelledSelectionColor ?? widget.selectionColor
-                                    : widget.selectionColor,
+                                    ? _spellCheckConfiguration.misspelledSelectionColor ?? editableText.selectionColor
+                                    : editableText.selectionColor,
                                 textScaler: effectiveTextScaler,
-                                textAlign: widget.textAlign,
+                                textAlign: editableText.textAlign,
                                 textDirection: _textDirection,
-                                locale: widget.locale,
-                                textHeightBehavior: widget.textHeightBehavior ?? DefaultTextHeightBehavior.maybeOf(context),
-                                textWidthBasis: widget.textWidthBasis,
-                                obscuringCharacter: widget.obscuringCharacter,
-                                obscureText: widget.obscureText,
+                                locale: editableText.locale,
+                                textHeightBehavior: editableText.textHeightBehavior ?? DefaultTextHeightBehavior.maybeOf(context),
+                                textWidthBasis: editableText.textWidthBasis,
+                                obscuringCharacter: editableText.obscuringCharacter,
+                                obscureText: editableText.obscureText,
                                 offset: offset,
-                                rendererIgnoresPointer: widget.rendererIgnoresPointer,
-                                cursorWidth: widget.cursorWidth,
-                                cursorHeight: widget.cursorHeight,
-                                cursorRadius: widget.cursorRadius,
-                                cursorOffset: widget.cursorOffset ?? Offset.zero,
-                                selectionHeightStyle: widget.selectionHeightStyle,
-                                selectionWidthStyle: widget.selectionWidthStyle,
-                                paintCursorAboveText: widget.paintCursorAboveText,
-                                enableInteractiveSelection: widget._userSelectionEnabled,
+                                rendererIgnoresPointer: editableText.rendererIgnoresPointer,
+                                cursorWidth: editableText.cursorWidth,
+                                cursorHeight: editableText.cursorHeight,
+                                cursorRadius: editableText.cursorRadius,
+                                cursorOffset: editableText.cursorOffset ?? Offset.zero,
+                                selectionHeightStyle: editableText.selectionHeightStyle,
+                                selectionWidthStyle: editableText.selectionWidthStyle,
+                                paintCursorAboveText: editableText.paintCursorAboveText,
+                                enableInteractiveSelection: editableText.userSelectionEnabled,
                                 textSelectionDelegate: this,
                                 devicePixelRatio: _devicePixelRatio,
                                 promptRectRange: _currentPromptRectRange,
-                                promptRectColor: widget.autocorrectionTextRectColor,
-                                clipBehavior: widget.clipBehavior,
+                                promptRectColor: editableText.autocorrectionTextRectColor,
+                                clipBehavior: editableText.clipBehavior,
                               ),
                             ),
                           ),
@@ -5304,9 +5379,9 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
   /// Descendants can override this method to customize appearance of text.
   TextSpan buildTextSpan() {
 
-    if (widget.obscureText) {
+    if (editableText.obscureText) {
       String text = _value.text;
-      text = widget.obscuringCharacter * text.length;
+      text = editableText.obscuringCharacter * text.length;
       // Reveal the latest character in an obscured field only on mobile.
       // Newer versions of iOS (iOS 15+) no longer reveal the most recently
       // entered character.
@@ -5340,7 +5415,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
         ],
       );
     }
-    final bool withComposing = !widget.readOnly && _hasFocus;
+    final bool withComposing = !editableText.readOnly && _hasFocus;
     if (_spellCheckResultsReceived) {
       // If the composing range is out of range for the current text, ignore it to
       // preserve the tree integrity, otherwise in release mode a RangeError will
@@ -5359,7 +5434,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
     }
 
     // Read only mode should not paint text composing.
-    return widget.controller.buildTextSpan(
+    return editableText.controller.buildTextSpan(
       context: context,
       style: _style,
       withComposing: withComposing,
@@ -5776,7 +5851,7 @@ class _CodePointBoundary extends TextBoundary {
 class _DeleteTextAction<T extends DirectionalTextEditingIntent> extends ContextAction<T> {
   _DeleteTextAction(this.state, this.getTextBoundary, this._applyTextBoundary);
 
-  final EditableTextState state;
+  final EditableTextDefaultState state;
   final TextBoundary Function() getTextBoundary;
   final _ApplyTextBoundary _applyTextBoundary;
 
@@ -5816,7 +5891,7 @@ class _DeleteTextAction<T extends DirectionalTextEditingIntent> extends ContextA
   }
 
   @override
-  bool get isActionEnabled => !state.widget.readOnly && state._value.selection.isValid;
+  bool get isActionEnabled => !state.editableText.readOnly && state._value.selection.isValid;
 }
 
 class _UpdateTextSelectionAction<T extends DirectionalCaretMovementIntent> extends ContextAction<T> {
@@ -5829,7 +5904,7 @@ class _UpdateTextSelectionAction<T extends DirectionalCaretMovementIntent> exten
     this.extentAtIndex = false,
   });
 
-  final EditableTextState state;
+  final EditableTextDefaultState state;
   final bool ignoreNonCollapsedSelection;
   final bool isExpand;
   final bool extentAtIndex;
@@ -5864,7 +5939,7 @@ class _UpdateTextSelectionAction<T extends DirectionalCaretMovementIntent> exten
     final TextSelection selection = state._value.selection;
     assert(selection.isValid);
 
-    final bool collapseSelection = intent.collapseSelection || !state.widget.selectionEnabled;
+    final bool collapseSelection = intent.collapseSelection || !state.editableText.selectionEnabled;
     if (!selection.isCollapsed && !ignoreNonCollapsedSelection && collapseSelection) {
       return Actions.invoke(context!, UpdateSelectionIntent(
         state._value,
@@ -5908,7 +5983,7 @@ class _UpdateTextSelectionAction<T extends DirectionalCaretMovementIntent> exten
 class _UpdateTextSelectionVerticallyAction<T extends DirectionalCaretMovementIntent> extends ContextAction<T> {
   _UpdateTextSelectionVerticallyAction(this.state);
 
-  final EditableTextState state;
+  final EditableTextDefaultState state;
 
   VerticalCaretMovementRun? _verticalMovementRun;
   TextSelection? _runSelection;
@@ -5920,7 +5995,7 @@ class _UpdateTextSelectionVerticallyAction<T extends DirectionalCaretMovementInt
       return;
     }
     _runSelection = state._value.selection;
-    final TextSelection currentSelection = state.widget.controller.selection;
+    final TextSelection currentSelection = state.editableText.controller.selection;
     final bool continueCurrentRun = currentSelection.isValid && currentSelection.isCollapsed
                                     && currentSelection.baseOffset == runSelection.baseOffset
                                     && currentSelection.extentOffset == runSelection.extentOffset;
@@ -5934,7 +6009,7 @@ class _UpdateTextSelectionVerticallyAction<T extends DirectionalCaretMovementInt
   void invoke(T intent, [BuildContext? context]) {
     assert(state._value.selection.isValid);
 
-    final bool collapseSelection = intent.collapseSelection || !state.widget.selectionEnabled;
+    final bool collapseSelection = intent.collapseSelection || !state.editableText.selectionEnabled;
     final TextEditingValue value = state._textEditingValueforTextLayoutMetrics;
     if (!value.selection.isValid) {
       return;
@@ -5975,7 +6050,7 @@ class _UpdateTextSelectionVerticallyAction<T extends DirectionalCaretMovementInt
 class _SelectAllAction extends ContextAction<SelectAllTextIntent> {
   _SelectAllAction(this.state);
 
-  final EditableTextState state;
+  final EditableTextDefaultState state;
 
   @override
   Object? invoke(SelectAllTextIntent intent, [BuildContext? context]) {
@@ -5990,13 +6065,13 @@ class _SelectAllAction extends ContextAction<SelectAllTextIntent> {
   }
 
   @override
-  bool get isActionEnabled => state.widget.selectionEnabled;
+  bool get isActionEnabled => state.editableText.selectionEnabled;
 }
 
 class _CopySelectionAction extends ContextAction<CopySelectionTextIntent> {
   _CopySelectionAction(this.state);
 
-  final EditableTextState state;
+  final EditableTextDefaultState state;
 
   @override
   void invoke(CopySelectionTextIntent intent, [BuildContext? context]) {

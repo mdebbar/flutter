@@ -145,7 +145,7 @@ class WebStrutStyle implements ui.StrutStyle {
 
 /// The Web implementation of [ui.Paragraph].
 class WebParagraph implements ui.Paragraph {
-  WebParagraph(this._paragraphStyle, this._text) {}
+  WebParagraph(this._paragraphStyle, this.text) {}
 
   /// The constraints from the last time we laid the paragraph out.
   ///
@@ -159,7 +159,7 @@ class WebParagraph implements ui.Paragraph {
   /// is deleted.
   final WebParagraphStyle _paragraphStyle;
 
-  final String _text;
+  final String text;
 
   @override
   double get alphabeticBaseline => _alphabeticBaseline;
@@ -291,8 +291,6 @@ class WebParagraph implements ui.Paragraph {
 
     throw StateError('Paragraph.debugDisposed is only available when asserts are enabled.');
   }
-
-  String get text => _text;
 
   late final TextLayout _layout = TextLayout(this);
   late final TextPaint _paint = TextPaint(this);

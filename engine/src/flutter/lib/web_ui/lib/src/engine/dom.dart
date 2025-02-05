@@ -2331,6 +2331,11 @@ extension DomTextMetricsExtension on DomTextMetrics {
   external JSNumber? get _width;
 
   double? get width => _width?.toDartDouble;
+
+  @JS('getTextClusters')
+  external JSArray<JSAny> _getTextClusters();
+
+  List<DomTextCluster> getTextClusters() => _getTextClusters().toDart.cast<DomTextCluster>();
 }
 
 @JS()
@@ -4204,36 +4209,16 @@ extension JSArrayExtension on JSArray<JSAny?> {
 
 @JS()
 @staticInterop
-class TextCluster {}
+class DomTextCluster {}
 
-@JS()
-@staticInterop
-class WebTextCluster extends TextCluster {}
-
-extension WebTextClusterExtension on WebTextCluster {
-  @JS('text')
-  external JSString _text();
-
-  String text() => _text().toDart;
-
+extension DomTextClusterExtension on DomTextCluster {
   @JS('begin')
-  external int _begin();
+  external JSNumber _begin;
 
-  int begin() => _begin();
+  int get begin => _begin.toDartInt;
 
   @JS('end')
-  external int _end();
+  external JSNumber _end;
 
-  int end() => _end();
-}
-
-@JS()
-@staticInterop
-class WebTextMetrics extends DomTextMetrics {}
-
-extension WebTextMetricsExtension on WebTextMetrics {
-  @JS('getTextClusters')
-  external JSArray<JSAny?> _getTextClusters();
-
-  List<WebTextCluster> getTextClusters() => _getTextClusters().toDart.cast<WebTextCluster>();
+  int get end => _end.toDartInt;
 }

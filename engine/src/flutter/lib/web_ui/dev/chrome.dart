@@ -86,8 +86,6 @@ class Chrome extends Browser {
         final bool isChromeNoSandbox = Platform.environment['CHROME_NO_SANDBOX'] == 'true';
         final String dir = await generateUserDirectory(installation, useDwarf);
         final List<String> args = <String>[
-          '--enable-features=ExtendedTextMetrics',
-          '--enable-experimental-web-platform-features',
           '--user-data-dir=$dir',
           kBlankPageUrl,
           if (!debug) '--headless',
@@ -111,6 +109,8 @@ class Chrome extends Browser {
           '--disable-default-apps',
           '--disable-translate',
           '--remote-debugging-port=$kDevtoolsPort',
+          '--enable-features=ExtendedTextMetrics',
+          '--enable-experimental-web-platform-features',
 
           // SwiftShader support on ARM macs is disabled until they upgrade to a newer
           // version of LLVM, see https://issuetracker.google.com/issues/165000222. In
@@ -120,6 +120,7 @@ class Chrome extends Browser {
           if (environment.isMacosArm) '--use-angle=metal',
         ];
 
+        print('Spawning Chrome! ${installation.executable}');
         final Process process = await _spawnChromiumProcess(installation.executable, args);
 
         await setupChromiumTab(url, exceptionCompleter);

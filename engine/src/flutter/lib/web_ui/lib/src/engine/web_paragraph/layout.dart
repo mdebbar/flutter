@@ -23,10 +23,10 @@ class TextLayout {
 
   final WebParagraph paragraph;
 
-  List<WebTextCluster> textClusters = <WebTextCluster>[];
+  List<DomTextCluster> textClusters = <DomTextCluster>[];
 
   void performLayout() {
-    final textMetrics = textContext.measureText(paragraph.text) as WebTextMetrics;
+    final textMetrics = textContext.measureText(paragraph.text);
     textClusters = textMetrics.getTextClusters();
   }
 }

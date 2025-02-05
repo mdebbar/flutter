@@ -24,7 +24,9 @@ class TextPaint {
   final WebParagraph paragraph;
   ui.Rect _bounds = ui.Rect.zero;
 
-  void printTextCluster(WebTextCluster textCluster) {
-    print('[${textCluster.begin()}:${textCluster.end()}): ${textCluster.text()}\n');
+  void printTextCluster(DomTextCluster textCluster) {
+    print(
+      '[${textCluster.begin}:${textCluster.end}): ${paragraph.text.substring(textCluster.begin, textCluster.end)}\n',
+    );
   }
 }

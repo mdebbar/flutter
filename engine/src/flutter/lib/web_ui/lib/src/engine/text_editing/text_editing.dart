@@ -1761,15 +1761,15 @@ class IOSTextEditingStrategy extends GloballyPositionedTextEditingStrategy {
     inputConfig.textCapitalization.setAutocapitalizeAttribute(activeDomElement);
   }
 
-  @override
-  void initializeElementPlacement() {
-    /// Position the element outside of the page before focusing on it. This is
-    /// useful for not triggering a scroll when iOS virtual keyboard is
-    /// coming up.
-    activeDomElement.style.transform = 'translate(${offScreenOffset}px, ${offScreenOffset}px)';
+  // @override
+  // void initializeElementPlacement() {
+  //   /// Position the element outside of the page before focusing on it. This is
+  //   /// useful for not triggering a scroll when iOS virtual keyboard is
+  //   /// coming up.
+  //   activeDomElement.style.transform = 'translate(${offScreenOffset}px, ${offScreenOffset}px)';
 
-    _canPosition = false;
-  }
+  //   _canPosition = false;
+  // }
 
   @override
   void addEventHandlers() {
@@ -1814,8 +1814,9 @@ class IOSTextEditingStrategy extends GloballyPositionedTextEditingStrategy {
         activeDomElement,
         'focus',
         createDomEventListener((DomEvent _) {
-          // Cancel previous timer if exists.
-          _schedulePlacement();
+          placeElement();
+          // // Cancel previous timer if exists.
+          // _schedulePlacement();
         }),
       ),
     );
@@ -1864,25 +1865,26 @@ class IOSTextEditingStrategy extends GloballyPositionedTextEditingStrategy {
           // Check if the element is already positioned. If not this does not fall
           // under `The user was using the long press, now they want to enter text
           // via keyboard` journey.
-          if (_canPosition) {
-            // Re-place the element somewhere outside of the screen.
-            initializeElementPlacement();
+          placeElement();
+          // if (_canPosition) {
+          //   // Re-place the element somewhere outside of the screen.
+          //   initializeElementPlacement();
 
-            // Re-configure the timer to place the element.
-            _schedulePlacement();
-          }
+          //   // Re-configure the timer to place the element.
+          //   _schedulePlacement();
+          // }
         }),
       ),
     );
   }
 
-  void _schedulePlacement() {
-    _positionInputElementTimer?.cancel();
-    _positionInputElementTimer = Timer(_delayBeforePlacement, () {
-      _canPosition = true;
-      placeElement();
-    });
-  }
+  // void _schedulePlacement() {
+  //   _positionInputElementTimer?.cancel();
+  //   _positionInputElementTimer = Timer(_delayBeforePlacement, () {
+  //     _canPosition = true;
+  //     placeElement();
+  //   });
+  // }
 
   @override
   void placeElement() {

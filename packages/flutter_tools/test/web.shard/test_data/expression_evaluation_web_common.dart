@@ -119,7 +119,7 @@ Future<void> testAll({required bool useDDCLibraryBundleFormat}) async {
     testWithoutContext('evaluated expression includes web library environment defines', () async {
       await start(expressionEvaluation: true);
       await evaluateWebLibraryBooleanFromEnvironmentInLibrary(flutter);
-    });
+    }, skip: useDDCLibraryBundleFormat); // https://github.com/flutter/flutter/issues/169574
 
     testWithoutContext('evaluated expression includes correctly mapped stack trace', () async {
       await start(expressionEvaluation: true);

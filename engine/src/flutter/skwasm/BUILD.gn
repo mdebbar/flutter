@@ -10,12 +10,10 @@ template("skwasm_variant") {
 
     sources = [
       "canvas.cc",
-      "canvas_text.h",
       "contour_measure.cc",
       "data.cc",
       "export.h",
       "filters.cc",
-      "fonts.cc",
       "helpers.h",
       "image.cc",
       "images.h",
@@ -29,16 +27,23 @@ template("skwasm_variant") {
       "skwasm_support.h",
       "string.cc",
       "surface.cc",
-      "text/line_metrics.cc",
-      "text/paragraph.cc",
-      "text/paragraph_builder.cc",
-      "text/paragraph_style.cc",
-      "text/strut_style.cc",
-      "text/text_style.cc",
-      "text/text_types.h",
       "vertices.cc",
       "wrappers.h",
     ]
+
+    if (!invoker.is_webparagraph) {
+      sources += [
+        "canvas_text.h",
+        "fonts.cc",
+        "text/line_metrics.cc",
+        "text/paragraph.cc",
+        "text/paragraph_builder.cc",
+        "text/paragraph_style.cc",
+        "text/strut_style.cc",
+        "text/text_style.cc",
+        "text/text_types.h",
+      ]
+    }
 
     cflags = [ "-mreference-types" ]
 
@@ -68,8 +73,10 @@ template("skwasm_variant") {
     } else {
       sources += [
         "animated_image_stub.cc",
-        "text/paragraph_builder_client_icu.cc",
       ]
+      if (!invoker.is_webparagraph) {
+        sources += [ "text/paragraph_builder_client_icu.cc" ]
+      }
     }
 
     if (invoker.use_impeller) {
@@ -99,9 +106,14 @@ template("skwasm_variant") {
 
     deps = [
       "//flutter/display_list",
-      "//flutter/skia/modules/skparagraph",
-      "//flutter/skia/modules/skunicode",
     ]
+
+    if (!invoker.is_webparagraph) {
+      deps += [
+        "//flutter/skia/modules/skparagraph",
+        "//flutter/skia/modules/skunicode",
+      ]
+    }
 
     if (invoker.use_impeller) {
       deps += [ "//flutter/impeller" ]
@@ -112,16 +124,25 @@ template("skwasm_variant") {
 }
 
 skwasm_variant("skwasm") {
+  is_webparagraph = false
   is_heavy = false
   use_impeller = false
 }
 
 skwasm_variant("skwasm_heavy") {
+  is_webparagraph = false
   is_heavy = true
   use_impeller = false
 }
 
+skwasm_variant("skwasm_webparagraph") {
+  is_webparagraph = true
+  is_heavy = false
+  use_impeller = false
+}
+
 skwasm_variant("wimp") {
+  is_webparagraph = false
   is_heavy = false
   use_impeller = true
 }

@@ -406,6 +406,7 @@ if (!is_fuchsia) {
         "//flutter/third_party/canvaskit:canvaskit_webparagraph_group",
         "//flutter/third_party/canvaskit:skwasm_group",
         "//flutter/third_party/canvaskit:skwasm_heavy_group",
+        "//flutter/third_party/canvaskit:skwasm_webparagraph_group",
         "//flutter/third_party/canvaskit:wimp_group",
       ]
     }
@@ -437,6 +438,9 @@ if (!is_fuchsia) {
         "$root_out_dir/flutter_web_sdk/canvaskit/webparagraph/canvaskit.js",
         "$root_out_dir/flutter_web_sdk/canvaskit/webparagraph/canvaskit.js.symbols",
         "$root_out_dir/flutter_web_sdk/canvaskit/webparagraph/canvaskit.wasm",
+        "$root_out_dir/flutter_web_sdk/canvaskit/skwasm_webparagraph.js",
+        "$root_out_dir/flutter_web_sdk/canvaskit/skwasm_webparagraph.js.symbols",
+        "$root_out_dir/flutter_web_sdk/canvaskit/skwasm_webparagraph.wasm",
         "$root_out_dir/flutter_web_sdk/canvaskit/wimp.js",
         "$root_out_dir/flutter_web_sdk/canvaskit/wimp.js.symbols",
         "$root_out_dir/flutter_web_sdk/canvaskit/wimp.wasm",

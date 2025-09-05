@@ -27,6 +27,7 @@ class GlobalHtmlAttributes {
     required int viewId,
     required String rendererTag,
     required String buildMode,
+    required String rasterizer,
   }) {
     // This `flt-view-id` attribute does not serve a function in the engine's
     // operation, but it's useful for debugging, test automation, and DOM
@@ -40,6 +41,7 @@ class GlobalHtmlAttributes {
 
     hostElement.setAttribute('flt-renderer', rendererTag);
     hostElement.setAttribute('flt-build-mode', buildMode);
+    hostElement.setAttribute('flt-rasterizer', rasterizer);
     // TODO(mdebbar): Disable spellcheck until changes in the framework and
     // engine are complete.
     hostElement.setAttribute('spellcheck', 'false');

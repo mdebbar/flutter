@@ -74,6 +74,7 @@ class EngineFlutterView implements ui.FlutterView {
       viewId: viewId,
       rendererTag: renderer.rendererTag,
       buildMode: buildMode,
+      rasterizer: '${renderer.rasterizer}',
     );
     registerHotRestartListener(dispose);
   }

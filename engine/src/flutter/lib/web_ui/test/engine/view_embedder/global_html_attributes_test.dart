@@ -24,18 +24,26 @@ void doTests() {
         viewId: 123,
         rendererTag: 'canvaskit',
         buildMode: 'release',
+        rasterizer: 'SomeRasterizer',
       );
 
       expect(rootElement.getAttribute('flt-view-id'), '123');
       expect(hostElement.getAttribute('flt-renderer'), 'canvaskit');
       expect(hostElement.getAttribute('flt-build-mode'), 'release');
+      expect(hostElement.getAttribute('flt-rasterizer'), 'SomeRasterizer');
       expect(hostElement.getAttribute('spellcheck'), 'false');
 
-      globalHtmlAttributes.applyAttributes(viewId: 456, rendererTag: 'skwasm', buildMode: 'debug');
+      globalHtmlAttributes.applyAttributes(
+        viewId: 456,
+        rendererTag: 'skwasm',
+        buildMode: 'debug',
+        rasterizer: 'AnotherRasterizer',
+      );
 
       expect(rootElement.getAttribute('flt-view-id'), '456');
       expect(hostElement.getAttribute('flt-renderer'), 'skwasm');
       expect(hostElement.getAttribute('flt-build-mode'), 'debug');
+      expect(hostElement.getAttribute('flt-rasterizer'), 'AnotherRasterizer');
       expect(hostElement.getAttribute('spellcheck'), 'false');
     });
   });

@@ -22,7 +22,7 @@ import 'package:path/path.dart' as path;
 
 import '../browser.dart';
 import '../run_command.dart';
-import '../service_worker_test.dart';
+import '../test/common.dart';
 import '../utils.dart';
 
 typedef ShardRunner = Future<void> Function();
@@ -188,8 +188,6 @@ class WebTestsSuite {
       () => _runGalleryE2eWebTest('debug'),
       () => _runGalleryE2eWebTest('profile'),
       () => _runGalleryE2eWebTest('release'),
-      // TODO(mdebbar): This test is flaky: https://github.com/flutter/flutter/issues/178032
-      // () => runServiceWorkerCleanupTest(headless: true),
       () => _runWebStackTraceTest('profile', 'lib/stack_trace.dart'),
       () => _runWebStackTraceTest('release', 'lib/stack_trace.dart'),
       () => _runWebStackTraceTest('profile', 'lib/framework_stack_trace.dart'),
@@ -686,4 +684,46 @@ class WebTestsSuite {
       throw Exception('WebDriver not available.');
     }
   }
+}
+
+/// A drop-in replacement for `package:test`'s `expect` that can run
+/// outside the standard test runner environment.
+void expect(Object? actual, Object? expected, {String? reason}) {
+  final Matcher matcher = wrapMatcher(expected);
+  final Map<Object?, Object?> matchState = <Object?, Object?>{};
+  if (matcher.matches(actual, matchState)) {
+    return;
+  }
+  final StringDescription mismatchDescription = StringDescription();
+  matcher.describeMismatch(actual, mismatchDescription, matchState, true);
+
+  final String which = mismatchDescription.toString();
+  final StringBuffer buffer = StringBuffer();
+  buffer.writeln(_indent(_prettyPrint(expected), first: 'Expected: '));
+  buffer.writeln(_indent(_prettyPrint(actual), first: '  Actual: '));
+  if (which.isNotEmpty) {
+    buffer.writeln(_indent(which, first: '   Which: '));
+  }
+  if (reason != null) {
+    buffer.writeln(_indent(reason, first: '  Reason: '));
+  }
+  foundError(<String>[buffer.toString(), StackTrace.current.toString()]);
+}
+
+/// Returns a pretty-printed representation of [value].
+String _prettyPrint(Object? value) => StringDescription().addDescriptionOf(value).toString();
+
+/// Indents each line of a [text] string.
+String _indent(String text, {required String first}) {
+  final String prefix = ' ' * first.length;
+  final List<String> lines = text.split('\n');
+  if (lines.length == 1) {
+    return '$first$text';
+  }
+  final StringBuffer buffer = StringBuffer('$first${lines.first}\n');
+  for (final String line in lines.skip(1).take(lines.length - 2)) {
+    buffer.writeln('$prefix$line');
+  }
+  buffer.write('$prefix${lines.last}');
+  return buffer.toString();
 }

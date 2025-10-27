@@ -15,7 +15,6 @@ import 'package:flutter_tools/src/dart/pub.dart';
 import 'package:flutter_tools/src/globals.dart' as globals;
 import 'package:flutter_tools/src/isolated/mustache_template.dart';
 import 'package:flutter_tools/src/web/compile.dart';
-import 'package:flutter_tools/src/web/file_generators/flutter_service_worker_js.dart';
 import 'package:flutter_tools/src/web_template.dart';
 import 'package:unified_analytics/unified_analytics.dart';
 
@@ -201,37 +200,43 @@ name: foo
   );
 
   test(
-    'WebTemplatedFiles includes serviceWorkerSettings in flutter_bootstrap.js by default',
-    () => testbed.run(() async {
-      final Directory webResources = environment.projectDir.childDirectory('web');
-      environment.defines[kServiceWorkerStrategy] = 'none';
-      webResources.childFile('index.html').createSync(recursive: true);
-      environment.buildDir.childFile('main.dart.js').createSync();
-      await WebTemplatedFiles(<Map<String, Object?>>[]).build(environment);
-
-      expect(
-        environment.outputDir.childFile('flutter_bootstrap.js').readAsStringSync(),
-        contains('_flutter.loader.load();'),
-      );
-    }),
-  );
-
-  test(
-    'WebTemplatedFiles omits serviceWorkerSettings in flutter_bootstrap.js when environment specifies',
+    'WebTemplatedFiles never includes serviceWorkerSettings in flutter_bootstrap.js',
     () => testbed.run(() async {
       final Directory webResources = environment.projectDir.childDirectory('web');
       webResources.childFile('index.html').createSync(recursive: true);
       environment.buildDir.childFile('main.dart.js').createSync();
-      await WebTemplatedFiles(<Map<String, Object?>>[]).build(environment);
 
-      expect(
-        environment.outputDir.childFile('flutter_bootstrap.js').readAsStringSync(),
-        stringContainsInOrder(<String>[
-          '_flutter.loader.load({',
-          'serviceWorkerSettings',
-          'serviceWorkerVersion',
-        ]),
-      );
+      {
+        await WebTemplatedFiles(<Map<String, Object?>>[]).build(environment);
+        final String content = environment.outputDir
+            .childFile('flutter_bootstrap.js')
+            .readAsStringSync();
+        expect(content, contains('_flutter.loader.load('));
+        expect(content, isNot(contains('serviceWorkerSettings')));
+        expect(content, isNot(contains('serviceWorkerVersion')));
+      }
+
+      {
+        environment.defines['ServiceWorkerStrategy'] = 'none';
+        await WebTemplatedFiles(<Map<String, Object?>>[]).build(environment);
+        final String content = environment.outputDir
+            .childFile('flutter_bootstrap.js')
+            .readAsStringSync();
+        expect(content, contains('_flutter.loader.load('));
+        expect(content, isNot(contains('serviceWorkerSettings')));
+        expect(content, isNot(contains('serviceWorkerVersion')));
+      }
+
+      {
+        environment.defines['ServiceWorkerStrategy'] = 'offlineFirst';
+        await WebTemplatedFiles(<Map<String, Object?>>[]).build(environment);
+        final String content = environment.outputDir
+            .childFile('flutter_bootstrap.js')
+            .readAsStringSync();
+        expect(content, contains('_flutter.loader.load('));
+        expect(content, isNot(contains('serviceWorkerSettings')));
+        expect(content, isNot(contains('serviceWorkerVersion')));
+      }
     }),
   );
 
@@ -1457,21 +1462,6 @@ _flutter.loader.load();
     expect(const WasmCompilerConfig().toCommandOptions(BuildMode.profile), contains('--no-minify'));
     expect(const WasmCompilerConfig().toCommandOptions(BuildMode.release), contains('--minify'));
   });
-
-  test(
-    'Generated service worker is empty with none-strategy',
-    () => testbed.run(() {
-      final String fileGeneratorsPath = environment.artifacts.getArtifactPath(
-        Artifact.flutterToolsFileGenerators,
-      );
-      final String result = generateServiceWorker(
-        fileGeneratorsPath,
-        serviceWorkerStrategy: ServiceWorkerStrategy.none,
-      );
-
-      expect(result, '');
-    }),
-  );
 
   test(
     'WebBuiltInAssets copies over canvaskit again if the web sdk changes',

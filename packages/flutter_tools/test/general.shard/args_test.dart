@@ -258,7 +258,7 @@ void verifyOptions(String? command, Iterable<Option> options) {
     );
 
     // Deprecated options and flags should be hidden but still have help text.
-    const deprecatedOptions = <String>['pwa-strategy'];
+    const deprecatedOptions = <String>[];
     final bool isOptionDeprecated = deprecatedOptions.contains(option.name);
     if (!isOptionDeprecated) {
       expect(

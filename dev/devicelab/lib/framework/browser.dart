@@ -533,8 +533,8 @@ class BlinkTraceEvent {
   /// frame (JavaScript, WebAssembly), plus a negligible amount of internal
   /// browser overhead.
   ///
-  /// This event does not include non-UI thread scripting, such as web workers,
-  /// service workers, and CSS Paint paintlets.
+  /// This event does not include non-UI thread scripting, such as web workers
+  /// and CSS Paint paintlets.
   ///
   /// WebViewImpl::beginFrame was used in earlier versions of Chrome, kept
   /// for compatibility.

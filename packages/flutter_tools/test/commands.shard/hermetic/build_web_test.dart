@@ -182,7 +182,6 @@ void main() {
         expect(environment.defines, <String, String>{
           'TargetFile': 'lib/main.dart',
           'HasWebPlugins': 'true',
-          'ServiceWorkerStrategy': 'offline-first',
           'BuildMode': 'release',
           'DartDefines':
               'Zm9vPWE=,RkxVVFRFUl9WRVJTSU9OPTAuMC4w,RkxVVFRFUl9DSEFOTkVMPW1hc3Rlcg==,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,RkxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049MTExMTE=,RkxVVFRFUl9FTkdJTkVfUkVWSVNJT049YWJjZGU=,RkxVVFRFUl9EQVJUX1ZFUlNJT049MTI=',
@@ -342,7 +341,6 @@ void main() {
         expect(environment.defines, <String, String>{
           'TargetFile': 'lib/a.dart',
           'HasWebPlugins': 'true',
-          'ServiceWorkerStrategy': 'offline-first',
           'BuildMode': 'release',
           'DartDefines':
               'RkxVVFRFUl9WRVJTSU9OPTAuMC4w,RkxVVFRFUl9DSEFOTkVMPW1hc3Rlcg==,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,RkxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049MTExMTE=,RkxVVFRFUl9FTkdJTkVfUkVWSVNJT049YWJjZGU=,RkxVVFRFUl9EQVJUX1ZFUlNJT049MTI=',
@@ -405,7 +403,6 @@ void main() {
         expect(environment.defines, <String, String>{
           'TargetFile': 'lib/a.dart',
           'HasWebPlugins': 'true',
-          'ServiceWorkerStrategy': 'offline-first',
           'BuildMode': 'release',
           'DartDefines':
               'RkxVVFRFUl9WRVJTSU9OPTAuMC4w,RkxVVFRFUl9DSEFOTkVMPW1hc3Rlcg==,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,RkxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049MTExMTE=,RkxVVFRFUl9FTkdJTkVfUkVWSVNJT049YWJjZGU=,RkxVVFRFUl9EQVJUX1ZFUlNJT049MTI=',
@@ -523,7 +520,6 @@ void main() {
         expect(environment.defines, <String, String>{
           'TargetFile': 'lib/main.dart',
           'HasWebPlugins': 'true',
-          'ServiceWorkerStrategy': 'offline-first',
           'BuildMode': 'release',
           'DartDefines':
               'RkxVVFRFUl9WRVJTSU9OPTAuMC4w,RkxVVFRFUl9DSEFOTkVMPW1hc3Rlcg==,RkxVVFRFUl9HSVRfVVJMPWh0dHBzOi8vZ2l0aHViLmNvbS9mbHV0dGVyL2ZsdXR0ZXIuZ2l0,RkxVVFRFUl9GUkFNRVdPUktfUkVWSVNJT049MTExMTE=,RkxVVFRFUl9FTkdJTkVfUkVWSVNJT049YWJjZGU=,RkxVVFRFUl9EQVJUX1ZFUlNJT049MTI=',
@@ -591,8 +587,8 @@ void main() {
       ProcessManager: () => processManager,
       BuildSystem: () =>
           TestBuildSystem.all(BuildResult(success: true), (Target target, Environment environment) {
-            expect(target, isA<WebServiceWorker>());
-            final List<WebCompilerConfig> configs = (target as WebServiceWorker).compileConfigs;
+            expect(target, isA<WebApp>());
+            final List<WebCompilerConfig> configs = (target as WebApp).compileConfigs;
             expect(configs, hasLength(2));
             final WebCompilerConfig jsConfig = configs[0];
             expect(jsConfig.renderer, WebRendererMode.canvaskit);
@@ -635,8 +631,8 @@ void main() {
       ProcessManager: () => processManager,
       BuildSystem: () =>
           TestBuildSystem.all(BuildResult(success: true), (Target target, Environment environment) {
-            expect(target, isA<WebServiceWorker>());
-            final List<WebCompilerConfig> configs = (target as WebServiceWorker).compileConfigs;
+            expect(target, isA<WebApp>());
+            final List<WebCompilerConfig> configs = (target as WebApp).compileConfigs;
             expect(configs, hasLength(1));
             final WebCompilerConfig jsConfig = configs[0];
             expect(jsConfig.renderer, WebRendererMode.canvaskit);
@@ -667,8 +663,8 @@ void main() {
       ProcessManager: () => processManager,
       BuildSystem: () =>
           TestBuildSystem.all(BuildResult(success: true), (Target target, Environment environment) {
-            expect(target, isA<WebServiceWorker>());
-            final List<WebCompilerConfig> configs = (target as WebServiceWorker).compileConfigs;
+            expect(target, isA<WebApp>());
+            final List<WebCompilerConfig> configs = (target as WebApp).compileConfigs;
             expect(configs, hasLength(2));
             expect(configs[0].renderer, WebRendererMode.skwasm);
             expect(configs[0].compileTarget, CompileTarget.wasm);
@@ -698,7 +694,7 @@ void main() {
       ProcessManager: () => processManager,
       BuildSystem: () =>
           TestBuildSystem.all(BuildResult(success: true), (Target target, Environment environment) {
-            final List<WebCompilerConfig> configs = (target as WebServiceWorker).compileConfigs;
+            final List<WebCompilerConfig> configs = (target as WebApp).compileConfigs;
 
             expect(configs[0].toCommandOptions(BuildMode.release), contains('--minify'));
             expect(configs[0].toCommandOptions(BuildMode.debug), contains('--minify'));
@@ -723,7 +719,7 @@ void main() {
       ProcessManager: () => processManager,
       BuildSystem: () =>
           TestBuildSystem.all(BuildResult(success: true), (Target target, Environment environment) {
-            final List<WebCompilerConfig> configs = (target as WebServiceWorker).compileConfigs;
+            final List<WebCompilerConfig> configs = (target as WebApp).compileConfigs;
 
             expect(configs[0].toCommandOptions(BuildMode.release), contains('--no-minify'));
             expect(configs[0].toCommandOptions(BuildMode.debug), contains('--no-minify'));
@@ -748,7 +744,7 @@ void main() {
       ProcessManager: () => processManager,
       BuildSystem: () =>
           TestBuildSystem.all(BuildResult(success: true), (Target target, Environment environment) {
-            final List<WebCompilerConfig> configs = (target as WebServiceWorker).compileConfigs;
+            final List<WebCompilerConfig> configs = (target as WebApp).compileConfigs;
 
             expect(configs[0].toCommandOptions(BuildMode.release), contains('--minify'));
             expect(configs[0].toCommandOptions(BuildMode.debug), contains('--no-minify'));
@@ -773,7 +769,7 @@ void main() {
       ProcessManager: () => processManager,
       BuildSystem: () =>
           TestBuildSystem.all(BuildResult(success: true), (Target target, Environment environment) {
-            final List<WebCompilerConfig> configs = (target as WebServiceWorker).compileConfigs;
+            final List<WebCompilerConfig> configs = (target as WebApp).compileConfigs;
 
             expect(configs[0].toCommandOptions(BuildMode.release), contains('--minify'));
             expect(configs[0].toCommandOptions(BuildMode.debug), contains('--no-minify'));
@@ -911,13 +907,6 @@ void main() {
         expect(command.usage, contains(option));
       }
 
-      void expectHidden(String option) {
-        expect(command.argParser.options.keys, contains(option));
-        expect(command.argParser.options[option]!.hide, isTrue);
-        expect(command.usage, isNot(contains(option)));
-      }
-
-      expectHidden('pwa-strategy');
       expectVisible('web-resources-cdn');
       expectVisible('optimization-level');
       expectVisible('source-maps');

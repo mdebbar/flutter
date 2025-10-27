@@ -39,7 +39,6 @@ import '../vmservice.dart';
 import '../web/chrome.dart';
 import '../web/compile.dart';
 import '../web/devfs_config.dart';
-import '../web/file_generators/flutter_service_worker_js.dart';
 import '../web/file_generators/main_dart.dart' as main_dart;
 import '../web/web_device.dart';
 import '../web/web_runner.dart';
@@ -348,7 +347,6 @@ class ResidentWebRunner extends ResidentRunner {
             flutterProject,
             target,
             debuggingOptions.buildInfo,
-            ServiceWorkerStrategy.none,
             compilerConfigs: <WebCompilerConfig>[_compilerConfig],
           );
         }
@@ -501,7 +499,6 @@ class ResidentWebRunner extends ResidentRunner {
           flutterProject,
           target,
           debuggingOptions.buildInfo,
-          ServiceWorkerStrategy.none,
           compilerConfigs: <WebCompilerConfig>[_compilerConfig],
         );
       } on ToolExit {

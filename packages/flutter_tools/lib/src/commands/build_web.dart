@@ -4,14 +4,12 @@
 
 import '../base/common.dart';
 import '../base/file_system.dart';
-import '../base/utils.dart';
 import '../build_info.dart';
 import '../features.dart';
 import '../globals.dart' as globals;
 import '../runner/flutter_command.dart'
     show DevelopmentArtifact, FlutterCommandResult, FlutterOptions;
 import '../web/compile.dart';
-import '../web/file_generators/flutter_service_worker_js.dart';
 import '../web/web_constants.dart';
 import '../web_template.dart';
 import 'build.dart';
@@ -46,15 +44,6 @@ class BuildWebCommand extends BuildSubCommand {
           'Used when serving the static assets from a different domain the application is hosted on. '
           'The value has to end with a slash "/". '
           'When this is set, it will replace all $kStaticAssetsUrlPlaceholder in web/index.html for the given value.',
-    );
-    argParser.addOption(
-      'pwa-strategy',
-      hide: true,
-      help:
-          'This option is deprecated and will be removed in a future Flutter release.\n'
-          'The caching strategy to be used by the PWA service worker.',
-      allowed: ServiceWorkerStrategy.values.map((ServiceWorkerStrategy e) => e.cliName),
-      allowedHelp: CliEnum.allowedHelp(ServiceWorkerStrategy.values),
     );
     usesWebResourcesCdnFlag();
 
@@ -294,7 +283,6 @@ class BuildWebCommand extends BuildSubCommand {
       project,
       targetFile,
       buildInfo,
-      ServiceWorkerStrategy.fromCliName(stringArg('pwa-strategy')),
       compilerConfigs: compilerConfigs,
       baseHref: baseHref,
       staticAssetsUrl: staticAssetsUrl,

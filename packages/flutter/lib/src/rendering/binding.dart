@@ -60,9 +60,6 @@ mixin RendererBinding
       ..onPlatformBrightnessChanged = handlePlatformBrightnessChanged;
     addPersistentFrameCallback(_handlePersistentFrameCallback);
     initMouseTracker();
-    if (kIsWeb) {
-      addPostFrameCallback(_handleWebFirstFrame, debugLabel: 'RendererBinding.webFirstFrame');
-    }
     rootPipelineOwner.attach(_manifold);
   }
 
@@ -483,26 +480,6 @@ mixin RendererBinding
       action.type,
       action.arguments,
     );
-  }
-
-  void _handleWebFirstFrame(Duration _) {
-    assert(kIsWeb);
-    const methodChannel = MethodChannel('flutter/service_worker');
-    methodChannel
-        .invokeMethod<void>('first-frame')
-        .then(
-          (_) {},
-          onError: (Object error, StackTrace stack) {
-            FlutterError.reportError(
-              FlutterErrorDetails(
-                exception: error,
-                stack: stack,
-                library: 'rendering library',
-                context: ErrorDescription('while sending the first-frame event'),
-              ),
-            );
-          },
-        );
   }
 
   void _handlePersistentFrameCallback(Duration timeStamp) {

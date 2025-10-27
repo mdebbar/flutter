@@ -561,11 +561,6 @@ class EnginePlatformDispatcher extends ui.PlatformDispatcher {
             return;
         }
 
-      // Dispatched by the bindings to delay service worker initialization.
-      case 'flutter/service_worker':
-        domWindow.dispatchEvent(createDomEvent('Event', 'flutter-first-frame'));
-        return;
-
       case 'flutter/textinput':
         textEditing.channel.handleTextInput(data, callback);
         return;

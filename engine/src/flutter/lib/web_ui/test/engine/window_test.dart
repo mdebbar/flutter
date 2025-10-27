@@ -546,25 +546,6 @@ void testMain() {
     expect(localeChangedCount, 1);
   });
 
-  test('dispatches browser event on flutter/service_worker channel', () async {
-    final completer = Completer<void>();
-    domWindow.addEventListener(
-      'flutter-first-frame',
-      createDomEventListener((DomEvent e) => completer.complete()),
-    );
-    final Zone innerZone = Zone.current.fork();
-
-    innerZone.runGuarded(() {
-      myWindow.sendPlatformMessage(
-        'flutter/service_worker',
-        ByteData(0),
-        (ByteData? outputData) {},
-      );
-    });
-
-    await expectLater(completer.future, completes);
-  });
-
   test('sets global html attributes', () {
     final DomElement host = createDomHTMLDivElement();
     final view = EngineFlutterView(dispatcher, host);

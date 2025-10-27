@@ -671,18 +671,10 @@ String generateTestBootstrapFileContents(String mainUri, String requireUrl, Stri
 ''';
 }
 
-String generateDefaultFlutterBootstrapScript({required bool includeServiceWorkerSettings}) {
-  final serviceWorkerSettings = includeServiceWorkerSettings
-      ? '''
-{
-  serviceWorkerSettings: {
-    serviceWorkerVersion: {{flutter_service_worker_version}}
-  }
-}'''
-      : '';
+String generateDefaultFlutterBootstrapScript() {
   return '''
 {{flutter_js}}
 {{flutter_build_config}}
-_flutter.loader.load($serviceWorkerSettings);
+_flutter.loader.load();
 ''';
 }

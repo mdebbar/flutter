@@ -15,6 +15,8 @@ import 'debug.dart';
 import 'paragraph.dart';
 import 'wrapper.dart';
 
+typedef EllipsisInfo = ({TextSpan span, List<TextCluster> clusters, int bidiLevel});
+
 /// Performs layout on a [WebParagraph].
 ///
 /// It uses a [DomHTMLCanvasElement] to get text information
@@ -33,10 +35,8 @@ class TextLayout {
   final allClusters = <WebCluster>[];
   late final _mapping = _TextClusterMapping(paragraph.text.length + 1, allClusters);
 
-  // This list will be filled only if needed and AFTER line breaking
-  // when we know the text style that will be used for ellipsis
-  List<WebCluster> ellipsisClusters = <WebCluster>[];
-  int? _ellipsisBidiLevel;
+  // This info is populated in `wrapper.dart`.
+  EllipsisInfo? ellipsisInfo;
 
   void performLayout(double width) {
     // TODO(jlavrova): IMPLEMENT:
@@ -128,20 +128,16 @@ class TextLayout {
   }
 
   int getEllipsisBidiLevel() {
-    if (paragraph.paragraphStyle.ellipsis == null) {
-      _ellipsisBidiLevel = 0;
-    } else if (_ellipsisBidiLevel == null) {
-      final List<BidiRegion> regions = canvasKit.Bidi.getBidiRegions(
-        paragraph.paragraphStyle.ellipsis!,
-        ui.TextDirection.ltr,
-      );
-      assert(
-        regions.isNotEmpty && regions.length == 1,
-        'The entire ellipsis must have the same text direction',
-      );
-      _ellipsisBidiLevel = regions.first.level;
-    }
-    return _ellipsisBidiLevel!;
+    assert(paragraph.paragraphStyle.ellipsis != null, 'Paragraph does not have ellipsis.');
+    final List<BidiRegion> regions = canvasKit.Bidi.getBidiRegions(
+      paragraph.paragraphStyle.ellipsis!,
+      ui.TextDirection.ltr,
+    );
+    assert(
+      regions.isNotEmpty && regions.length == 1,
+      'The entire ellipsis must have the same text direction',
+    );
+    return regions.first.level;
   }
 
   void extractBidiRuns() {
@@ -216,20 +212,13 @@ class TextLayout {
     }
     // Prepare ellipsis block in case we need to get metrics for it
     EllipsisBlock? ellipsisBlock;
-    if (ellipsisClusters.isNotEmpty) {
-      final ellipsisSpan = TextSpan(
-        start: ellipsisClusters.first.start,
-        end: ellipsisClusters.last.end,
-        style: ellipsisClusters.first.style,
-        text: paragraph.paragraphStyle.ellipsis!,
-        textDirection: _ellipsisBidiLevel!.isEven ? ui.TextDirection.ltr : ui.TextDirection.rtl,
-      );
+    if (ellipsisInfo != null) {
       ellipsisBlock = EllipsisBlock(
-        ellipsisSpan,
-        _ellipsisBidiLevel!,
-        ClusterRange(start: 0, end: ellipsisSpan.size),
-        ui.TextRange(start: 0, end: ellipsisSpan.text.length),
-        0.0,
+        ellipsisInfo!.span,
+        ellipsisInfo!.bidiLevel,
+        ClusterRange(start: 0, end: ellipsisInfo!.clusters.length),
+        ui.TextRange(start: 0, end: ellipsisInfo!.span.text.length),
+        0.0, // Will be updated later.
         0.0,
       );
     }
@@ -973,8 +962,6 @@ abstract class WebCluster {
 
   WebTextStyle get style;
 
-  void addToContext(DomCanvasRenderingContext2D context, double x, double y);
-
   @override
   String toString() {
     return 'WebCluster [$start:$end)';
@@ -1000,7 +987,6 @@ class TextCluster extends WebCluster {
 
   final DomTextCluster _cluster;
 
-  @override
   void addToContext(DomCanvasRenderingContext2D context, double x, double y) {
     context.fillTextCluster(_cluster, /*left:*/ x, /*top:*/ y);
   }
@@ -1034,11 +1020,6 @@ class EmptyCluster extends WebCluster {
   String toString() {
     return 'EmptyCluster [$start:$end)';
   }
-
-  @override
-  void addToContext(DomCanvasRenderingContext2D context, double x, double y) {
-    throw UnsupportedError('We should not call "addToContext" on an EmptyCluster');
-  }
 }
 
 class PlaceholderCluster extends WebCluster {
@@ -1057,11 +1038,6 @@ class PlaceholderCluster extends WebCluster {
 
   @override
   late final ui.Rect advance = ui.Rect.fromLTWH(0, 0, span.width, span.height);
-
-  @override
-  void addToContext(DomCanvasRenderingContext2D context, double x, double y) {
-    throw UnsupportedError('We should not call "addToContext" on an PlaceholderCluster');
-  }
 }
 
 // This is the minimal range of cluster that belongs to the same bidi run and to the same style block
@@ -1168,25 +1144,17 @@ class TextBlock extends LineBlock {
   int get visualClusterEnd => isLtr ? clusterRange.end : clusterRange.start - 1;
 
   /// Returns a list of pairs of clusters and their directions in the visual order.
-  Iterable<(WebCluster, bool)> getTextClustersInVisualOrder(TextLayout layout) sync* {
+  Iterable<TextCluster> getTextClustersInVisualOrder(TextLayout layout) sync* {
     final int start = visualClusterStart;
     final int end = visualClusterEnd;
     final step = isLtr ? 1 : -1;
     for (var i = start; i != end; i += step) {
-      final WebCluster clusterText = this is EllipsisBlock
-          ? layout.ellipsisClusters[i]
-          : layout.allClusters[i];
-      yield (
-        clusterText,
-        // We shape ellipsis with default direction coming from the attaching block
-        // and all the other blocks with the default paragraph direction.
-        // The reason for shaping ellipsis this way is that we literally attach it to the block
-        // that overflows and we want to keep all the styling attributes (including text direction) consistent.
-        this is EllipsisBlock
-            ? isLtr
-            : layout.paragraph.paragraphStyle.textDirection == ui.TextDirection.ltr,
-      );
+      yield _getClusterAt(layout, i);
     }
+  }
+
+  TextCluster _getClusterAt(TextLayout layout, int i) {
+    return layout.allClusters[i] as TextCluster;
   }
 
   ClusterRange clusterRangeWithoutWhitespaces;
@@ -1274,6 +1242,11 @@ class EllipsisBlock extends TextBlock {
     super.shiftFromLineStart,
     super.shiftFromSpanStart,
   );
+
+  @override
+  TextCluster _getClusterAt(TextLayout layout, int i) {
+    return layout.ellipsisInfo!.clusters[i];
+  }
 }
 
 class TextLine {

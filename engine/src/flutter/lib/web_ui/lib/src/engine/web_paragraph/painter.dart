@@ -246,9 +246,7 @@ class DomCanvasParagraphPainter {
   }
 
   static void _fillBlockText(TextLayout layout, TextBlock block) {
-    for (final (WebCluster clusterText, bool isLtr) in block.getTextClustersInVisualOrder(layout)) {
-      _fillTextCluster(clusterText, isLtr);
-    }
+    block.getTextClustersInVisualOrder(layout).forEach(_fillTextCluster);
   }
 
   static void _fillBlockShadows(TextLayout layout, TextBlock block) {
@@ -256,26 +254,26 @@ class DomCanvasParagraphPainter {
       return;
     }
 
-    for (final (WebCluster clusterText, bool isLtr) in block.getTextClustersInVisualOrder(layout)) {
-      for (final ui.Shadow shadow in clusterText.style.shadows!) {
-        _fillShadowCluster(clusterText, shadow, isLtr);
+    for (final TextCluster textCluster in block.getTextClustersInVisualOrder(layout)) {
+      for (final ui.Shadow shadow in textCluster.style.shadows!) {
+        _fillShadowCluster(textCluster, shadow);
       }
     }
   }
 
-  static void _fillTextCluster(WebCluster webTextCluster, bool isDefaultLtr) {
-    final WebTextStyle style = webTextCluster.style;
+  static void _fillTextCluster(TextCluster textCluster) {
+    final WebTextStyle style = textCluster.style;
     _paintContext.fillStyle = style.getForegroundColor().toCssString();
-    webTextCluster.addToContext(_paintContext, 0, 0);
+    textCluster.addToContext(_paintContext, 0, 0);
   }
 
-  static void _fillShadowCluster(WebCluster webTextCluster, ui.Shadow shadow, bool isDefaultLtr) {
+  static void _fillShadowCluster(TextCluster textCluster, ui.Shadow shadow) {
     // It's not clear how to draw the shadow directly on ui.Canvas without going through canvas2d.
     _paintContext.shadowColor = shadow.color.toCssString();
     _paintContext.shadowBlur = shadow.blurRadius;
     _paintContext.shadowOffsetX = shadow.offset.dx;
     _paintContext.shadowOffsetY = shadow.offset.dy;
 
-    webTextCluster.addToContext(_paintContext, 0, 0);
+    textCluster.addToContext(_paintContext, 0, 0);
   }
 }

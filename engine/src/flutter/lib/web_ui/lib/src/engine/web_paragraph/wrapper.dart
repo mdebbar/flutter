@@ -390,6 +390,8 @@ class _LineBuilder {
       // No ellipsizing needed, but we have reached max lines
       return true;
     }
+
+    final int ellipsisBidiLevel = _layout.getEllipsisBidiLevel();
     // Let's walk backwards and see how many clusters we need to remove to fit the ellipsis in the line
     var cutOffWidth = 0.0;
     while (true) {
@@ -400,22 +402,26 @@ class _LineBuilder {
       }
       final WebCluster cluster = _layout.allClusters[clusterIndex - 1];
       final double widthCluster = cluster.advance.width;
-      final ellipsisSpan = TextSpan(
-        start: 0,
-        end: ellipsis.length,
-        style: cluster.style,
-        text: ellipsis,
-        textDirection: _layout.getEllipsisBidiLevel().isEven
-            ? ui.TextDirection.ltr
-            : ui.TextDirection.rtl,
-      );
       cutOffWidth += widthCluster;
       if (_isWhitespace(cluster)) {
         // We skip whitespaces when cutting off for ellipsis, so just continue
-      } else if (canFit(ellipsisSpan.advanceWidth()! - cutOffWidth)) {
-        // We can fit the ellipsis now
-        _layout.ellipsisClusters = ellipsisSpan.extractClusters();
-        break;
+      } else {
+        final ellipsisSpan = TextSpan(
+          start: 0,
+          end: ellipsis.length,
+          style: cluster.style,
+          text: ellipsis,
+          textDirection: ellipsisBidiLevel.isEven ? ui.TextDirection.ltr : ui.TextDirection.rtl,
+        );
+        if (canFit(ellipsisSpan.advanceWidth()! - cutOffWidth)) {
+          // We can fit the ellipsis now
+          _layout.ellipsisInfo = (
+            span: ellipsisSpan,
+            clusters: ellipsisSpan.extractClusters(),
+            bidiLevel: ellipsisBidiLevel,
+          );
+          break;
+        }
       }
       // Remove this cluster, correct the structures and try again
       clusterIndex -= 1;

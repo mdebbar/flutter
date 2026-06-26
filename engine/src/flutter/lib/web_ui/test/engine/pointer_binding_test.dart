@@ -2237,6 +2237,78 @@ void testMain() {
     packets.clear();
   });
 
+  test('handles stylus button presses on non-Android platform', () {
+    final ui_web.OperatingSystem? originalOs = ui_web.browser.debugOperatingSystemOverride;
+    ui_web.browser.debugOperatingSystemOverride = ui_web.OperatingSystem.windows;
+    addTearDown(() {
+      ui_web.browser.debugOperatingSystemOverride = originalOs;
+    });
+
+    final context = _PointerEventContext();
+    final packets = <ui.PointerDataPacket>[];
+    ui.PlatformDispatcher.instance.onPointerDataPacket = (ui.PointerDataPacket packet) {
+      packets.add(packet);
+    };
+
+    // Eraser tip contact (buttons: 32)
+    rootElement.dispatchEvent(
+      context.stylusTouchDown(pointerId: 100, buttons: 32, clientX: 5.0, clientY: 100.0),
+    );
+    expect(packets, hasLength(1));
+    expect(packets[0].data, hasLength(2));
+    expect(packets[0].data[0].change, equals(ui.PointerChange.add));
+    expect(packets[0].data[0].kind, equals(ui.PointerDeviceKind.invertedStylus));
+    expect(packets[0].data[1].change, equals(ui.PointerChange.down));
+    expect(packets[0].data[1].kind, equals(ui.PointerDeviceKind.invertedStylus));
+    expect(packets[0].data[1].buttons, equals(1)); // maps to contact
+    packets.clear();
+
+    rootElement.dispatchEvent(
+      context.stylusTouchUp(pointerId: 100, buttons: 0, clientX: 5.0, clientY: 100.0),
+    );
+    expect(packets, hasLength(1));
+    expect(packets[0].data, hasLength(1));
+    expect(packets[0].data[0].change, equals(ui.PointerChange.up));
+    expect(packets[0].data[0].kind, equals(ui.PointerDeviceKind.invertedStylus));
+    packets.clear();
+  });
+
+  test('handles stylus button presses on Android', () {
+    final ui_web.OperatingSystem? originalOs = ui_web.browser.debugOperatingSystemOverride;
+    ui_web.browser.debugOperatingSystemOverride = ui_web.OperatingSystem.android;
+    addTearDown(() {
+      ui_web.browser.debugOperatingSystemOverride = originalOs;
+    });
+
+    final context = _PointerEventContext();
+    final packets = <ui.PointerDataPacket>[];
+    ui.PlatformDispatcher.instance.onPointerDataPacket = (ui.PointerDataPacket packet) {
+      packets.add(packet);
+    };
+
+    // Barrel button pressed (buttons: 32 on Android Chrome)
+    rootElement.dispatchEvent(
+      context.stylusTouchDown(pointerId: 100, buttons: 32, clientX: 5.0, clientY: 100.0),
+    );
+    expect(packets, hasLength(1));
+    expect(packets[0].data, hasLength(2));
+    expect(packets[0].data[0].change, equals(ui.PointerChange.add));
+    expect(packets[0].data[0].kind, equals(ui.PointerDeviceKind.stylus));
+    expect(packets[0].data[1].change, equals(ui.PointerChange.down));
+    expect(packets[0].data[1].kind, equals(ui.PointerDeviceKind.stylus));
+    expect(packets[0].data[1].buttons, equals(3)); // maps to contact (1) | primary stylus button (2)
+    packets.clear();
+
+    rootElement.dispatchEvent(
+      context.stylusTouchUp(pointerId: 100, buttons: 0, clientX: 5.0, clientY: 100.0),
+    );
+    expect(packets, hasLength(1));
+    expect(packets[0].data, hasLength(1));
+    expect(packets[0].data[0].change, equals(ui.PointerChange.up));
+    expect(packets[0].data[0].kind, equals(ui.PointerDeviceKind.stylus));
+    packets.clear();
+  });
+
   // MULTIPOINTER ADAPTERS
 
   test('treats each pointer separately', () {

@@ -15,6 +15,14 @@ analyzer:
     prefer_relative_imports: ignore
     public_member_api_docs: ignore
     use_setters_to_change_properties: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 linter:
   rules:

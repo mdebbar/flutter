@@ -887,23 +887,51 @@ mixin _WheelEventListenerMixin on _BaseAdapter {
 
 @immutable
 class _SanitizedDetails {
-  const _SanitizedDetails({required this.buttons, required this.change});
+  const _SanitizedDetails({required this.buttons, required this.change, this.deviceKind});
 
   final ui.PointerChange change;
   final int buttons;
+  final ui.PointerDeviceKind? deviceKind;
 
   @override
-  String toString() => '$runtimeType(change: $change, buttons: $buttons)';
+  String toString() => '$runtimeType(change: $change, buttons: $buttons, deviceKind: $deviceKind)';
 }
 
 class _ButtonSanitizer {
+  _ButtonSanitizer(this.pointerType);
+
+  final String pointerType;
   int _pressedButtons = 0;
+  bool _isInverted = false;
+
+  ui.PointerDeviceKind? get _deviceKind {
+    if (pointerType != 'pen') {
+      return null;
+    }
+    return _isInverted ? ui.PointerDeviceKind.invertedStylus : ui.PointerDeviceKind.stylus;
+  }
 
   /// Transform [DomPointerEvent.buttons] to Flutter's PointerEvent buttons.
   int _htmlButtonsToFlutterButtons(int buttons) {
-    // Flutter's button definition conveniently matches that of JavaScript
-    // from primary button (0x1) to forward button (0x10), which allows us to
-    // avoid transforming it bit by bit.
+    if (pointerType == 'pen') {
+      int mappedButtons = buttons & _kButtonsMask;
+      if (ui_web.browser.operatingSystem == ui_web.OperatingSystem.android) {
+        if ((mappedButtons & 32) != 0) {
+          mappedButtons = (mappedButtons & ~32) | 1 | 2;
+        }
+        if ((mappedButtons & 64) != 0) {
+          mappedButtons = (mappedButtons & ~64) | 1 | 4;
+        }
+      } else {
+        if ((mappedButtons & 32) != 0) {
+          _isInverted = true;
+          mappedButtons = (mappedButtons & ~32) | 1;
+        } else if (mappedButtons != 0) {
+          _isInverted = false;
+        }
+      }
+      return mappedButtons;
+    }
     return buttons & _kButtonsMask;
   }
 
@@ -927,7 +955,11 @@ class _ButtonSanitizer {
 
     _pressedButtons = _inferDownFlutterButtons(button, buttons);
 
-    return _SanitizedDetails(change: ui.PointerChange.down, buttons: _pressedButtons);
+    return _SanitizedDetails(
+      change: ui.PointerChange.down,
+      buttons: _pressedButtons,
+      deviceKind: _deviceKind,
+    );
   }
 
   _SanitizedDetails sanitizeMoveEvent({required int buttons}) {
@@ -936,7 +968,11 @@ class _ButtonSanitizer {
     // The brower sends a move event with `buttons:2` even though there's no
     // buttons down yet.
     if (_pressedButtons == 0 && newPressedButtons != 0) {
-      return _SanitizedDetails(change: ui.PointerChange.hover, buttons: _pressedButtons);
+      return _SanitizedDetails(
+        change: ui.PointerChange.hover,
+        buttons: _pressedButtons,
+        deviceKind: _deviceKind,
+      );
     }
 
     _pressedButtons = newPressedButtons;
@@ -944,6 +980,7 @@ class _ButtonSanitizer {
     return _SanitizedDetails(
       change: _pressedButtons == 0 ? ui.PointerChange.hover : ui.PointerChange.move,
       buttons: _pressedButtons,
+      deviceKind: _deviceKind,
     );
   }
 
@@ -953,7 +990,11 @@ class _ButtonSanitizer {
     // event was received because context menu was shown.
     if (_pressedButtons != 0 && newPressedButtons == 0) {
       _pressedButtons = 0;
-      return _SanitizedDetails(change: ui.PointerChange.up, buttons: _pressedButtons);
+      return _SanitizedDetails(
+        change: ui.PointerChange.up,
+        buttons: _pressedButtons,
+        deviceKind: _deviceKind,
+      );
     }
     return null;
   }
@@ -966,7 +1007,13 @@ class _ButtonSanitizer {
     if (newPressedButtons == 0) {
       _pressedButtons = 0;
 
-      return _SanitizedDetails(change: ui.PointerChange.hover, buttons: _pressedButtons);
+      final details = _SanitizedDetails(
+        change: ui.PointerChange.hover,
+        buttons: _pressedButtons,
+        deviceKind: _deviceKind,
+      );
+      _isInverted = false;
+      return details;
     }
 
     return null;
@@ -983,17 +1030,33 @@ class _ButtonSanitizer {
 
     if (_pressedButtons == 0) {
       // All buttons have been released.
-      return _SanitizedDetails(change: ui.PointerChange.up, buttons: _pressedButtons);
+      final details = _SanitizedDetails(
+        change: ui.PointerChange.up,
+        buttons: _pressedButtons,
+        deviceKind: _deviceKind,
+      );
+      _isInverted = false;
+      return details;
     } else {
       // There are still some unreleased buttons, we shouldn't send an up event
       // yet. Instead we send a move event to update the position of the pointer.
-      return _SanitizedDetails(change: ui.PointerChange.move, buttons: _pressedButtons);
+      return _SanitizedDetails(
+        change: ui.PointerChange.move,
+        buttons: _pressedButtons,
+        deviceKind: _deviceKind,
+      );
     }
   }
 
   _SanitizedDetails sanitizeCancelEvent() {
     _pressedButtons = 0;
-    return _SanitizedDetails(change: ui.PointerChange.cancel, buttons: _pressedButtons);
+    final details = _SanitizedDetails(
+      change: ui.PointerChange.cancel,
+      buttons: _pressedButtons,
+      deviceKind: _deviceKind,
+    );
+    _isInverted = false;
+    return details;
   }
 }
 
@@ -1010,8 +1073,8 @@ class _PointerAdapter extends _BaseAdapter with _WheelEventListenerMixin {
   @visibleForTesting
   Iterable<int> debugTrackedDevices() => _sanitizers.keys;
 
-  _ButtonSanitizer _ensureSanitizer(int device) {
-    return _sanitizers.putIfAbsent(device, () => _ButtonSanitizer());
+  _ButtonSanitizer _ensureSanitizer(int device, String pointerType) {
+    return _sanitizers.putIfAbsent(device, () => _ButtonSanitizer(pointerType));
   }
 
   _ButtonSanitizer _getSanitizer(int device) {
@@ -1059,7 +1122,7 @@ class _PointerAdapter extends _BaseAdapter with _WheelEventListenerMixin {
     _addPointerEventListener(_viewTarget, 'pointerdown', (DomPointerEvent event) {
       final int device = _getPointerId(event);
       final pointerData = <ui.PointerData>[];
-      final _ButtonSanitizer sanitizer = _ensureSanitizer(device);
+      final _ButtonSanitizer sanitizer = _ensureSanitizer(device, event.pointerType!);
       final _SanitizedDetails? up = sanitizer.sanitizeMissingRightClickUp(
         buttons: event.buttons!.toInt(),
       );
@@ -1105,7 +1168,7 @@ class _PointerAdapter extends _BaseAdapter with _WheelEventListenerMixin {
     // `_viewTarget`. https://github.com/flutter/flutter/issues/157968
     _addPointerEventListener(_globalTarget, 'pointermove', (DomPointerEvent moveEvent) {
       final int device = _getPointerId(moveEvent);
-      final _ButtonSanitizer sanitizer = _ensureSanitizer(device);
+      final _ButtonSanitizer sanitizer = _ensureSanitizer(device, moveEvent.pointerType!);
       final pointerData = <ui.PointerData>[];
       final List<DomPointerEvent> expandedEvents = _expandEvents(moveEvent);
       for (final event in expandedEvents) {
@@ -1135,7 +1198,7 @@ class _PointerAdapter extends _BaseAdapter with _WheelEventListenerMixin {
 
     _addPointerEventListener(_viewTarget, 'pointerleave', (DomPointerEvent event) {
       final int device = _getPointerId(event);
-      final _ButtonSanitizer sanitizer = _ensureSanitizer(device);
+      final _ButtonSanitizer sanitizer = _ensureSanitizer(device, event.pointerType!);
       final pointerData = <ui.PointerData>[];
       final _SanitizedDetails? details = sanitizer.sanitizeLeaveEvent(
         buttons: event.buttons!.toInt(),
@@ -1194,7 +1257,7 @@ class _PointerAdapter extends _BaseAdapter with _WheelEventListenerMixin {
     int? pointerId,
     DomEventTarget? eventTarget,
   }) {
-    final ui.PointerDeviceKind kind = _pointerTypeToDeviceKind(event.pointerType!);
+    final ui.PointerDeviceKind kind = details.deviceKind ?? _pointerTypeToDeviceKind(event.pointerType!, event.buttons?.toInt() ?? 0);
     final double tilt = _computeHighestTilt(event);
     final Duration timeStamp = _BaseAdapter._eventTimeStampToDuration(event.timeStamp!);
     final num? pressure = event.pressure;
@@ -1236,7 +1299,12 @@ class _PointerAdapter extends _BaseAdapter with _WheelEventListenerMixin {
     return <DomPointerEvent>[event];
   }
 
-  ui.PointerDeviceKind _pointerTypeToDeviceKind(String pointerType) {
+  ui.PointerDeviceKind _pointerTypeToDeviceKind(String pointerType, int buttons) {
+    if (pointerType == 'pen' &&
+        ui_web.browser.operatingSystem != ui_web.OperatingSystem.android &&
+        (buttons & 32) != 0) {
+      return ui.PointerDeviceKind.invertedStylus;
+    }
     return switch (pointerType) {
       'mouse' => ui.PointerDeviceKind.mouse,
       'pen' => ui.PointerDeviceKind.stylus,
@@ -1249,7 +1317,7 @@ class _PointerAdapter extends _BaseAdapter with _WheelEventListenerMixin {
     // All mouse pointer events are given `_mouseDeviceId`, including wheel
     // events, because wheel events might come before any other PointerEvents,
     // and wheel PointerEvents don't contain pointerIds.
-    return switch (_pointerTypeToDeviceKind(event.pointerType!)) {
+    return switch (_pointerTypeToDeviceKind(event.pointerType!, event.buttons?.toInt() ?? 0)) {
       ui.PointerDeviceKind.mouse => _mouseDeviceId,
 
       ui.PointerDeviceKind.stylus || ui.PointerDeviceKind.invertedStylus => _stylusDeviceId,

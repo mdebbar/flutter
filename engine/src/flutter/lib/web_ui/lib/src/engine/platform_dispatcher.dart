@@ -707,7 +707,25 @@ class EnginePlatformDispatcher extends ui.PlatformDispatcher {
     required ui.VoidCallback beginFrame,
     required ui.VoidCallback drawFrame,
   }) {
-    FrameService.instance.scheduleWarmUpFrame(beginFrame: beginFrame, drawFrame: drawFrame);
+    FrameService.instance.scheduleWarmUpFrame(
+      beginFrame: () {
+        _viewsRenderedInCurrentFrame = <ui.FlutterView>{};
+        try {
+          beginFrame();
+        } finally {
+          _viewsRenderedInCurrentFrame = null;
+        }
+      },
+      drawFrame: () {
+        _viewsRenderedInCurrentFrame = <ui.FlutterView>{};
+        try {
+          drawFrame();
+        } finally {
+          _viewsRenderedInCurrentFrame = null;
+          frameArena.collect();
+        }
+      },
+    );
   }
 
   @override

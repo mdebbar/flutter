@@ -593,6 +593,26 @@ void testMain() {
       expect(drawFrameCalled.isCompleted, true);
     });
 
+    test('can render in scheduleWarmUpFrame', () async {
+      final dispatcher = EnginePlatformDispatcher.instance;
+      final view = dispatcher.implicitView!;
+      final drawFrameCalled = Completer<void>();
+      dispatcher.scheduleWarmUpFrame(
+        beginFrame: () {},
+        drawFrame: () {
+          final builder = renderer.createSceneBuilder();
+          final scene = builder.build();
+          view.render(scene);
+
+          final rasterizer = renderer.rasterizers[view.viewId]!;
+          expect(rasterizer.queue.current, isNotNull);
+
+          drawFrameCalled.complete();
+        },
+      );
+      await drawFrameCalled.future;
+    });
+
     group('Media query values', () {
       late EnginePlatformDispatcher dispatcher;
 

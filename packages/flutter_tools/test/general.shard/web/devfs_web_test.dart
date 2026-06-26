@@ -2436,6 +2436,164 @@ const config = {
       await webDevFS.destroy();
     }, overrides: <Type, Generator>{Artifacts: () => Artifacts.test()}),
   );
+
+  test(
+    'DDC library bundle reloaded sources prepend basePath when baseHref is set',
+    () => testbed.run(() async {
+      // Set up initial compile.
+      final File outputFile = globals.fs.file(globals.fs.path.join('lib', 'main.dart'))
+        ..createSync(recursive: true);
+      outputFile.parent.childFile('a.lib.js.sources').writeAsStringSync('main() {}');
+      outputFile.parent.childFile('a.lib.js.json').writeAsStringSync('{}');
+      outputFile.parent.childFile('a.lib.js.map').writeAsStringSync('{}');
+      outputFile.parent.childFile('a.lib.js.metadata').writeAsStringSync('{}');
+
+      final residentCompiler = FakeResidentCompiler()
+        ..output = const CompilerOutput('a.lib.js', 0, <Uri>[]);
+
+      const webDevServerConfig = WebDevServerConfig(baseHref: '/preview/');
+      final webDevFS = WebDevFS(
+        packagesFilePath: '.dart_tool/package_config.json',
+        urlTunneller: null,
+        useSseForDebugProxy: true,
+        useSseForDebugBackend: true,
+        useSseForInjectedClient: true,
+        nativeNullAssertions: true,
+        buildInfo: const BuildInfo(
+          BuildMode.debug,
+          '',
+          treeShakeIcons: false,
+          packageConfigPath: '.dart_tool/package_config.json',
+        ),
+        enableDwds: false,
+        ddsConfig: const DartDevelopmentServiceConfiguration(enable: false),
+        entrypoint: Uri.base,
+        testMode: true,
+        expressionCompiler: null,
+        chromiumLauncher: null,
+        // Use DDC library bundle.
+        ddcModuleSystem: true,
+        canaryFeatures: true,
+        webRenderer: WebRendererMode.canvaskit,
+        isWasm: false,
+        useLocalCanvasKit: false,
+        rootDirectory: globals.fs.currentDirectory,
+        webDevServerConfig: webDevServerConfig,
+        fileSystem: globals.fs,
+        logger: globals.logger,
+        platform: globals.platform,
+        webCrossOriginIsolation: false,
+      );
+      webDevFS.ddcModuleLoaderJS.createSync(recursive: true);
+      webDevFS.flutterJs.createSync(recursive: true);
+      webDevFS.stackTraceMapper.createSync(recursive: true);
+
+      await webDevFS.create();
+
+      webDevFS.webAssetServer.entrypointCacheDirectory = globals.fs.currentDirectory;
+      globals.fs.currentDirectory.childDirectory('lib').childFile('web_entrypoint.dart')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('GENERATED');
+      final String webPrecompiledCanvaskitSdk = globals.artifacts!
+          .getHostArtifact(HostArtifact.webPrecompiledDdcLibraryBundleCanvaskitSdk)
+          .path;
+      final String webPrecompiledCanvaskitSdkSourcemaps = globals.artifacts!
+          .getHostArtifact(HostArtifact.webPrecompiledDdcLibraryBundleCanvaskitSdkSourcemaps)
+          .path;
+      final String flutterJs = globals.fs.path.join(
+        globals.artifacts!.getHostArtifact(HostArtifact.flutterJsDirectory).path,
+        'flutter.js',
+      );
+      globals.fs.file(webPrecompiledCanvaskitSdk)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('HELLO');
+      globals.fs.file(webPrecompiledCanvaskitSdkSourcemaps)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('THERE');
+      globals.fs.file(flutterJs)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('(flutter.js content)');
+
+      await webDevFS.update(
+        mainUri: outputFile.uri,
+        generator: residentCompiler,
+        trackWidgetCreation: true,
+        bundleFirstUpload: true,
+        invalidatedFiles: <Uri>[],
+        packageConfig: PackageConfig.empty,
+        pathToReload: '',
+        dillOutputPath: '',
+        shaderCompiler: const FakeShaderCompiler(),
+      );
+
+      // Recompile with modules in the top-level and in a subdirectory.
+      const aSource = 'void main() {}';
+      const bSource = 'void func() {}';
+      final File sources = outputFile.parent.childFile('a.lib.js.sources')
+        ..writeAsStringSync('$aSource$bSource');
+      outputFile.parent.childFile('a.lib.js.map').writeAsStringSync('{}{}');
+      final String aMetadata = json.encode(
+        ModuleMetadata('a.lib.js', 'closure', 'a.map', 'a.lib.js')
+          ..addLibrary(LibraryMetadata('lib_a', 'dart:lib_a', ['lib_a.dart']))
+          ..toJson(),
+      );
+      final String bMetadata = json.encode(
+        ModuleMetadata('b.lib.js', 'closure', 'b.map', 'b.lib.js')
+          ..addLibrary(LibraryMetadata('lib_b', 'dart:lib_b', ['lib_b.dart']))
+          ..toJson(),
+      );
+      final File metadata = outputFile.parent.childFile('a.lib.js.metadata')
+        ..writeAsStringSync('$aMetadata$bMetadata');
+      outputFile.parent
+          .childFile('a.lib.js.json')
+          .writeAsStringSync(
+            json.encode(<String, Object>{
+              'a.lib.js': <String, Object>{
+                'code': <int>[0, aSource.length],
+                'sourcemap': <int>[0, 2],
+                'metadata': <int>[0, aMetadata.length],
+              },
+              'sub/b.lib.js': <String, Object>{
+                'code': <int>[aSource.length, sources.lengthSync()],
+                'sourcemap': <int>[2, 4],
+                'metadata': <int>[aMetadata.length, metadata.lengthSync()],
+              },
+            }),
+          );
+
+      await webDevFS.update(
+        mainUri: outputFile.uri,
+        generator: residentCompiler,
+        trackWidgetCreation: true,
+        invalidatedFiles: <Uri>[],
+        packageConfig: PackageConfig.empty,
+        pathToReload: '',
+        dillOutputPath: '',
+        shaderCompiler: const FakeShaderCompiler(),
+      );
+
+      final Uint8List? reloadedSources = webDevFS.webAssetServer.getFile(
+        WebAssetServer.reloadedSourcesUri.path,
+      );
+      expect(reloadedSources, isNotNull);
+      expect(json.decode(utf8.decode(reloadedSources!)), [
+        {
+          // The paths within `reloadedSources` should be relative with a root
+          // prefix and include base path.
+          'src': '/preview/a.lib.js',
+          'module': 'a.lib.js',
+          'libraries': ['dart:lib_a'],
+        },
+        {
+          'src': '/preview/sub/b.lib.js',
+          'module': 'b.lib.js',
+          'libraries': ['dart:lib_b'],
+        },
+      ]);
+
+      await webDevFS.destroy();
+    }, overrides: <Type, Generator>{Artifacts: () => Artifacts.test()}),
+  );
 }
 
 class FakeHttpServer extends Fake implements HttpServer {

@@ -161,7 +161,7 @@ class WebAssetServer implements AssetReader {
         // TODO(srujzs): We use a `/` prefix to match the path that DWDS gets
         // when parsing the parsed URL. It may be cleaner to just remove the `/`
         // in DWDS rather than add it here.
-        'src': '/$relativeModulePath',
+        'src': basePath.isEmpty ? '/$relativeModulePath' : '/$basePath/$relativeModulePath',
         'module': metadata.name,
         'libraries': libraries,
       });

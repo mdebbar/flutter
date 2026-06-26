@@ -246,6 +246,23 @@ class AccessibilityFocusManager {
       return;
     }
 
+    if (value) {
+      if (value != _lastSetValue) {
+        _owner.willRequestFocus();
+        _lastSetValue = true;
+      }
+      _owner.addOneTimePostUpdateCallback(() {
+        if (_target != target) {
+          return;
+        }
+        if (domDocument.activeElement != target.element) {
+          _lastEvent = AccessibilityFocusManagerEvent.requestedFocus;
+          target.element.focusWithoutScroll();
+        }
+      });
+      return;
+    }
+
     if (value == _lastSetValue) {
       // The focus is being changed to a value that's already been requested in
       // the past. Do nothing.
@@ -253,39 +270,18 @@ class AccessibilityFocusManager {
     }
     _lastSetValue = value;
 
-    if (value) {
-      _owner.willRequestFocus();
-    } else {
-      // Do not blur elements. Instead let the element be blurred by requesting
-      // focus elsewhere. Blurring elements is a very error-prone thing to do,
-      // as it is subject to non-local effects. Let's say the framework decides
-      // that a semantics node is currently not focused. That would lead to
-      // changeFocus(false) to be called. However, what if this node is inside
-      // a route, and nothing else in the route is focused? The Flutter
-      // framework expects that the screen reader will focus on the first (in
-      // traversal order) focusable element inside the route and send a
-      // SemanticsAction.focus action. Screen readers on the web do not do
-      // that, and so the web engine has to implement this behavior directly. So
-      // the route will look for a focusable element and request focus on it,
-      // but now there may be a race between this method unsetting the focus and
-      // the route requesting focus on the same element.
-      return;
-    }
-
-    // Delay the focus request until the final DOM structure is established
-    // because the element may not yet be attached to the DOM, or it may be
-    // reparented and lose focus again.
-    _owner.addOneTimePostUpdateCallback(() {
-      if (_target != target) {
-        // The element may have been swapped or the manager may have been disposed
-        // of between the focus change request and the post update callback
-        // invocation. So check again that the element is still the same and is
-        // not null.
-        return;
-      }
-
-      _lastEvent = AccessibilityFocusManagerEvent.requestedFocus;
-      target.element.focusWithoutScroll();
-    });
+    // Do not blur elements. Instead let the element be blurred by requesting
+    // focus elsewhere. Blurring elements is a proves error-prone thing to do,
+    // as it is subject to non-local effects. Let's say the framework decides
+    // that a semantics node is currently not focused. That would lead to
+    // changeFocus(false) to be called. However, what if this node is inside
+    // a route, and nothing else in the route is focused? The Flutter
+    // framework expects that the screen reader will focus on the first (in
+    // traversal order) focusable element inside the route and send a
+    // SemanticsAction.focus action. Screen readers on the web do not do
+    // that, and so the web engine has to implement this behavior directly. So
+    // the route will look for a focusable element and request focus on it,
+    // but now there may be a race between this method unsetting the focus and
+    // the route requesting focus on the same element.
   }
 }

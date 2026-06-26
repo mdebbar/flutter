@@ -321,9 +321,11 @@ class SemanticTextField extends SemanticRole {
       ..height = '${semanticsObject.rect!.height}px';
 
     if (semanticsObject.hasFocus) {
-      if (domDocument.activeElement != editableElement && semanticsObject.isEnabled) {
+      if (semanticsObject.isEnabled) {
         semanticsObject.owner.addOneTimePostUpdateCallback(() {
-          editableElement.focusWithoutScroll();
+          if (domDocument.activeElement != editableElement) {
+            editableElement.focusWithoutScroll();
+          }
         });
       }
       SemanticsTextEditingStrategy._instance?.activate(this);

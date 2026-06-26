@@ -29,6 +29,10 @@ class SemanticRouteBase extends SemanticRole {
         return;
       }
 
+      if (_hasFocusedDescendant()) {
+        return;
+      }
+
       // Case 2: nothing requested explicit focus. Focus on the first descendant.
       _setDefaultFocus();
     });
@@ -46,6 +50,18 @@ class SemanticRouteBase extends SemanticRole {
       final bool didTakeFocus = role.focusAsRouteDefault();
       return !didTakeFocus;
     });
+  }
+
+  bool _hasFocusedDescendant() {
+    var hasFocus = false;
+    semanticsObject.visitDepthFirstInTraversalOrder((SemanticsObject node) {
+      if (node.hasFocus) {
+        hasFocus = true;
+        return false;
+      }
+      return true;
+    });
+    return hasFocus;
   }
 
   @override

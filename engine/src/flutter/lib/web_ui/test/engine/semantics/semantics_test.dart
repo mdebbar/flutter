@@ -4664,6 +4664,87 @@ void _testRoute() {
 
     semantics().semanticsEnabled = false;
   });
+
+  test('does not steal focus if a descendant is already focused and route is recreated', () async {
+    semantics()
+      ..debugOverrideTimestampFunction(() => _testTime)
+      ..semanticsEnabled = true;
+
+    final tester = SemanticsTester(owner());
+
+    // 1. Initial tree: Root 0 -> Route 1 -> Text Field 2 (focused)
+    tester.updateNode(
+      id: 0,
+      transform: Matrix4.identity().toFloat64(),
+      children: <SemanticsNodeUpdate>[
+        tester.updateNode(
+          id: 1,
+          flags: const ui.SemanticsFlags(scopesRoute: true),
+          transform: Matrix4.identity().toFloat64(),
+          children: <SemanticsNodeUpdate>[
+            tester.updateNode(
+              id: 2,
+              label: 'Input',
+              flags: const ui.SemanticsFlags(
+                isEnabled: ui.Tristate.isTrue,
+                isTextField: true,
+                isFocused: ui.Tristate.isTrue,
+              ),
+              rect: const ui.Rect.fromLTRB(0, 0, 100, 50),
+            ),
+          ],
+        ),
+      ],
+    );
+    tester.apply();
+
+    // Verify it has focus.
+    final DomElement input = owner().debugSemanticsTree![2]!.element.querySelectorAll('input').single;
+    expect(domDocument.activeElement, input);
+
+    // 2. Update tree: Root 0 -> Route 3 (new) -> [Button 4, Text Field 2 (reused)]
+    // We add Button 4 before Text Field 2 to verify that if default focus runs,
+    // it would focus Button 4.
+    tester.updateNode(
+      id: 0,
+      transform: Matrix4.identity().toFloat64(),
+      children: <SemanticsNodeUpdate>[
+        tester.updateNode(
+          id: 3,
+          flags: const ui.SemanticsFlags(scopesRoute: true),
+          transform: Matrix4.identity().toFloat64(),
+          children: <SemanticsNodeUpdate>[
+            tester.updateNode(
+              id: 4,
+              label: 'Button',
+              flags: const ui.SemanticsFlags(
+                isEnabled: ui.Tristate.isTrue,
+                isButton: true,
+                isFocused: ui.Tristate.isFalse,
+              ),
+              rect: const ui.Rect.fromLTRB(0, 0, 100, 50),
+            ),
+            tester.updateNode(
+              id: 2,
+              label: 'Input',
+              flags: const ui.SemanticsFlags(
+                isEnabled: ui.Tristate.isTrue,
+                isTextField: true,
+                isFocused: ui.Tristate.isTrue, // still focused
+              ),
+              rect: const ui.Rect.fromLTRB(0, 0, 100, 50),
+            ),
+          ],
+        ),
+      ],
+    );
+    tester.apply();
+
+    // Verify that focus remained on the Input, not moved to the Button.
+    expect(domDocument.activeElement, input);
+
+    semantics().semanticsEnabled = false;
+  });
 }
 
 void _testDialogs() {

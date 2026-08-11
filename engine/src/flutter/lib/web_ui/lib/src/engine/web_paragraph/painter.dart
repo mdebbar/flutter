@@ -61,10 +61,19 @@ void _resizePaintCanvas(double devicePixelRatio, ui.Rect rect) {
     ((paragraph.paintBounds.width) * devicePixelRatio).ceilToDouble(),
     ((paragraph.paintBounds.height) * devicePixelRatio).ceilToDouble(),
   );
+
+  // Snap the physical target origin to integer physical pixels so that the pre-rasterized
+  // text image aligns 1:1 with the GPU canvas physical pixel grid. This prevents subpixel
+  // phase-shifting, jitter, and aliasing artifacts during window resizes or flex layout shifts.
+  final double targetPhysicalLeft = ((offset.dx + paragraph.paintBounds.left) * devicePixelRatio)
+      .roundToDouble();
+  final double targetPhysicalTop = ((offset.dy + paragraph.paintBounds.top) * devicePixelRatio)
+      .roundToDouble();
+
   // Target rect will be scaled by the canvas transform, so we don't scale it here
   final targetRect = ui.Rect.fromLTWH(
-    offset.dx + paragraph.paintBounds.left,
-    offset.dy + paragraph.paintBounds.top,
+    targetPhysicalLeft / devicePixelRatio,
+    targetPhysicalTop / devicePixelRatio,
     sourceRect.width / devicePixelRatio,
     sourceRect.height / devicePixelRatio,
   );

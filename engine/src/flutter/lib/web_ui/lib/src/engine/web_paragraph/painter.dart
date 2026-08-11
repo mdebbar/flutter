@@ -265,12 +265,14 @@ class DomCanvasParagraphPainter {
 
   static void _fillTextCluster(WebCluster webTextCluster, bool isDefaultLtr) {
     final WebTextStyle style = webTextCluster.style;
+    style.applyToContext(_paintContext);
     _paintContext.fillStyle = style.getForegroundColor().toCssString();
     webTextCluster.addToContext(_paintContext, 0, 0);
   }
 
   static void _fillShadowCluster(WebCluster webTextCluster, ui.Shadow shadow, bool isDefaultLtr) {
-    // It's not clear how to draw the shadow directly on ui.Canvas without going through canvas2d.
+    final WebTextStyle style = webTextCluster.style;
+    style.applyToContext(_paintContext);
     _paintContext.shadowColor = shadow.color.toCssString();
     _paintContext.shadowBlur = shadow.blurRadius;
     _paintContext.shadowOffsetX = shadow.offset.dx;

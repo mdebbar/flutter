@@ -63,10 +63,10 @@ void _resizePaintCanvas(double devicePixelRatio, ui.Rect rect) {
   );
   // Target rect will be scaled by the canvas transform, so we don't scale it here
   final targetRect = ui.Rect.fromLTWH(
-    (offset.dx + paragraph.paintBounds.left).floorToDouble(),
-    (offset.dy + paragraph.paintBounds.top).floorToDouble(),
-    (sourceRect.width / devicePixelRatio).ceilToDouble(),
-    (sourceRect.height / devicePixelRatio).ceilToDouble(),
+    offset.dx + paragraph.paintBounds.left,
+    offset.dy + paragraph.paintBounds.top,
+    sourceRect.width / devicePixelRatio,
+    sourceRect.height / devicePixelRatio,
   );
 
   return (sourceRect, targetRect);

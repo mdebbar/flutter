@@ -25,7 +25,7 @@ class CanvasKitPainter extends WebParagraphPainter {
     _singleImageCache = null;
   }
 
-  double? _lastDevicePixelRatio;
+  double? _lastScale;
 
   @override
   void paintParagraphText(
@@ -34,11 +34,11 @@ class CanvasKitPainter extends WebParagraphPainter {
     ui.Rect targetRect, {
     required ParagraphImageGenerator generateParagraphImage,
   }) {
-    final double dpr = ui.window.devicePixelRatio;
-    if (_lastDevicePixelRatio != dpr) {
+    final double scale = targetRect.width == 0 ? 1.0 : sourceRect.width / targetRect.width;
+    if (_lastScale != scale) {
       clearCache();
     }
-    _lastDevicePixelRatio = dpr;
+    _lastScale = scale;
 
     if (!hasCache) {
       final imageInfo = SkImageInfo(
@@ -69,7 +69,7 @@ class CanvasKitPainter extends WebParagraphPainter {
       _singleImageCache!,
       sourceRect,
       targetRect,
-      ui.Paint()..filterQuality = ui.FilterQuality.none,
+      ui.Paint()..filterQuality = ui.FilterQuality.low,
     );
   }
 }

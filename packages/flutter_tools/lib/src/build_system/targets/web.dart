@@ -185,14 +185,11 @@ class Dart2JSTarget extends Dart2WebTarget {
     }
     final buildMode = BuildMode.fromCliName(buildModeEnvironment);
     final Artifacts artifacts = environment.artifacts;
-    final String platformBinariesPath = artifacts
-        .getHostArtifact(HostArtifact.webPlatformKernelFolder)
-        .path;
     final sharedCommandOptions = <String>[
       artifacts.getArtifactPath(Artifact.engineDartBinary, platform: TargetPlatform.web_javascript),
       'compile',
       'js',
-      '--platform-binaries=$platformBinariesPath',
+      '--libraries-spec=${artifacts.getHostArtifact(HostArtifact.flutterWebLibrariesJson).path}',
       '--invoker=flutter_tool',
       ...decodeCommaSeparated(environment.defines, kExtraFrontEndOptions),
       if (buildMode == BuildMode.profile)

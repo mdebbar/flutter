@@ -25,6 +25,7 @@ import '../base/time.dart';
 import '../base/utils.dart';
 import '../build_info.dart';
 import '../cache.dart';
+import '../compile.dart';
 import '../dart/language_version.dart';
 import '../dart/package_map.dart';
 import '../devfs.dart';
@@ -782,6 +783,42 @@ class ResidentWebRunner extends ResidentRunner {
       'Waiting for connection from debug service on '
       '${flutterDevice!.device!.displayName}...',
     );
+    final bool shouldResetCompiler =
+        !isFirstUpload &&
+        (resetCompiler ||
+            (invalidationResult.uris?.any((Uri uri) {
+                  final s = uri.toString();
+                  return s.contains('package:ui') ||
+                      s.contains('web_ui') ||
+                      s.contains('packages/ui');
+                }) ??
+                false));
+    _logger.printTrace(
+      'DevFS update: shouldResetCompiler=$shouldResetCompiler, uris=${invalidationResult.uris}',
+    );
+    if (shouldResetCompiler) {
+      _logger.printTrace(
+        'Resetting resident compiler because web engine or package:ui was modified.',
+      );
+      await flutterDevice!.generator?.shutdown();
+      final TargetPlatform targetPlatform = await flutterDevice!.device!.targetPlatform;
+      final ResidentCompiler newGenerator = residentCompilerFactory.create(
+        artifacts: globals.artifacts!,
+        processManager: globals.processManager,
+        logger: _logger,
+        fileSystem: _fileSystem,
+        platform: globals.platform,
+        shutdownHooks: globals.shutdownHooks,
+        config: globals.config,
+        targetPlatform: targetPlatform,
+        buildInfo: debuggingOptions.buildInfo,
+      );
+      final dynamic devFS = flutterDevice!.devFS;
+      if (devFS is WebDevFS) {
+        newGenerator.addFileSystemRoot(devFS.webAssetServer.entrypointCacheDirectory.path);
+      }
+      flutterDevice!.generator = newGenerator;
+    }
     final UpdateFSReport report = await flutterDevice!.devFS!.update(
       mainUri: await _generateEntrypoint(
         _fileSystem.file(mainPath).absolute.uri,
@@ -792,9 +829,9 @@ class ResidentWebRunner extends ResidentRunner {
       bundleFirstUpload: isFirstUpload,
       generator: flutterDevice!.generator!,
       fullRestart: fullRestart,
-      resetCompiler: resetCompiler,
+      resetCompiler: shouldResetCompiler,
       dillOutputPath: dillOutputPath,
-      pathToReload: getReloadPath(resetCompiler: resetCompiler, swap: false),
+      pathToReload: getReloadPath(resetCompiler: shouldResetCompiler, swap: false),
       invalidatedFiles: invalidationResult.uris!,
       packageConfig: invalidationResult.packageConfig!,
       trackWidgetCreation: debuggingOptions.buildInfo.trackWidgetCreation,

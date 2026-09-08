@@ -100,7 +100,7 @@ class FlutterDevice {
 
   final TargetPlatform targetPlatform;
   final Device? device;
-  final ResidentCompiler? generator;
+  ResidentCompiler? generator;
   final BuildInfo buildInfo;
   final String? userIdentifier;
   final DevelopmentShaderCompiler developmentShaderCompiler;

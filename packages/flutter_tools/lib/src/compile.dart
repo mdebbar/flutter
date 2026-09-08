@@ -24,6 +24,7 @@ import 'build_info.dart';
 import 'bundle.dart';
 import 'convert.dart';
 import 'dart/package_map.dart';
+import 'web/compile.dart';
 
 /// Opt-in changes to the dart compilers.
 const kDartCompilerExperiments = <String>[];
@@ -550,12 +551,13 @@ class ResidentCompilerFactory {
       sdkRoot = artifacts.getHostArtifact(HostArtifact.flutterWebSdk).path;
       targetModel = .dartdevc;
 
-      const platformDillName = 'ddc_outline.dill';
       platformDillPath = fileSystem
           .file(
             fileSystem.path.join(
-              artifacts.getHostArtifact(.webPlatformKernelFolder).path,
-              platformDillName,
+              artifacts.getArtifactPath(Artifact.engineDartSdkPath),
+              'lib',
+              '_internal',
+              'ddc_outline.dill',
             ),
           )
           .absolute
@@ -567,7 +569,10 @@ class ResidentCompilerFactory {
           .uri
           .toString();
 
+      final renderer = WebRendererMode.fromDartDefines(buildInfo.dartDefines, useWasm: false);
+
       buildInfo = buildInfo.copyWith(
+        dartDefines: renderer.updateDartDefines(buildInfo.dartDefines),
         // Override the filesystem scheme so that the frontend_server can find
         // the generated entrypoint code.
         fileSystemScheme: 'org-dartlang-app',
@@ -785,6 +790,7 @@ class DefaultResidentCompiler implements ResidentCompiler {
   final List<String>? extraFrontEndOptions;
   final List<String> dartDefines;
   final String? librariesSpec;
+  bool _isShuttingDown = false;
 
   @override
   void addFileSystemRoot(String root) {
@@ -969,12 +975,7 @@ class DefaultResidentCompiler implements ResidentCompiler {
       '--experimental-emit-debug-metadata',
       for (final Object dartDefine in dartDefines) '-D$dartDefine',
       if (outputPath != null) ...<String>['--output-dill', outputPath],
-      // If we have a platform dill, we don't need to pass the libraries spec,
-      // since the information is embedded in the .dill file.
-      if (librariesSpec != null && platformDill == null) ...<String>[
-        '--libraries-spec',
-        librariesSpec!,
-      ],
+      if (librariesSpec != null) ...<String>['--libraries-spec', librariesSpec!],
       if (packagesPath != null) ...<String>['--packages', packagesPath!],
       ...buildModeOptions(buildMode, dartDefines),
       if (trackWidgetCreation) '--track-creation-locations',
@@ -1020,7 +1021,7 @@ class DefaultResidentCompiler implements ResidentCompiler {
       _server?.exitCode.then((int code) {
         // The frontend server exits with a 253 error code when we shutdown due to a signal.
         // Don't treat this as an error if we're in the middle of the shutdown sequence.
-        if (code != 0 && !_shutdownHooks.isShuttingDown) {
+        if (code != 0 && !_shutdownHooks.isShuttingDown && !_isShuttingDown) {
           throwToolExit('The Dart compiler exited unexpectedly.');
         }
       }),
@@ -1207,6 +1208,7 @@ class DefaultResidentCompiler implements ResidentCompiler {
 
   @override
   Future<Object> shutdown() async {
+    _isShuttingDown = true;
     // Server was never successfully created.
     final Process? server = _server;
     if (server == null) {

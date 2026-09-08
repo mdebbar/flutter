@@ -7,11 +7,11 @@ import 'dart:js_interop';
 import 'package:meta/meta.dart';
 import 'package:ui/ui.dart' as ui;
 import 'package:ui/ui_web/src/ui_web.dart' as ui_web;
-import 'package:web_locale_keymap/web_locale_keymap.dart' as locale_keymap;
 
 import 'dom.dart';
 import 'initialization.dart';
 import 'key_map.g.dart';
+import 'keymap/web_locale_keymap.dart' as locale_keymap;
 import 'platform_dispatcher.dart';
 import 'raw_keyboard.dart';
 import 'renderer.dart';

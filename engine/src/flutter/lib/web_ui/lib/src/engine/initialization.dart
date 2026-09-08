@@ -8,7 +8,7 @@ import 'dart:developer' as developer;
 import 'package:ui/src/engine.dart';
 import 'package:ui/ui.dart' as ui;
 import 'package:ui/ui_web/src/ui_web.dart' as ui_web;
-import 'package:web_test_fonts/web_test_fonts.dart';
+import 'web_test_fonts.dart';
 
 /// The mode the app is running in.
 /// Keep these in sync with the same constants on the framework-side under foundation/constants.dart.

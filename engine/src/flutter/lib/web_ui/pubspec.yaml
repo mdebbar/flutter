@@ -7,11 +7,6 @@ environment:
 
 dependencies:
   meta: ^1.14.0
-  web_locale_keymap:
-    path: ../../third_party/web_locale_keymap
-
-  web_test_fonts:
-    path: ../../third_party/web_test_fonts
 
 
 dev_dependencies:

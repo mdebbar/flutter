@@ -5,8 +5,9 @@
 import("//flutter/build/zip_bundle.gni")
 import("//flutter/common/config.gni")
 import("//flutter/lib/web_ui/flutter_js/sources.gni")
-import("//flutter/web_sdk/web_sdk.gni")
 import("$dart_src/build/dart/dart_action.gni")
+
+dart_sdk_package_config = "$dart_src/.dart_tool/package_config.json"
 
 web_ui_sources = exec_script("list_dart_files.py",
                              [
@@ -15,15 +16,33 @@ web_ui_sources = exec_script("list_dart_files.py",
                              ],
                              "list lines")
 
+copy("web_ui_libraries_json") {
+  sources = [ "//flutter/web_sdk/libraries.json" ]
+  outputs = [ "$root_out_dir/flutter_web_sdk/libraries.json" ]
+}
+
+copy("web_ui_stub") {
+  sources = [ "//flutter/web_sdk/lib/ui/ui.dart" ]
+  outputs = [ "$root_out_dir/flutter_web_sdk/lib/ui/ui.dart" ]
+}
+
+copy("web_ui_web_stub") {
+  sources = [ "//flutter/web_sdk/lib/ui_web/ui_web.dart" ]
+  outputs = [ "$root_out_dir/flutter_web_sdk/lib/ui_web/ui_web.dart" ]
+}
+
+group("web_ui_library") {
+  public_deps = [
+    ":web_ui_libraries_json",
+    ":web_ui_stub",
+    ":web_ui_web_stub",
+  ]
+}
+
 web_engine_libraries = [
-  ":skwasm_impl_library",
-  ":skwasm_stub_library",
-  ":web_engine_library",
-  ":web_ui_library",
-  ":web_ui_ui_web",
-  ":web_ui_library_sources",
-  ":web_test_fonts_library",
-  ":web_locale_keymap_library",
+  ":web_ui_libraries_json",
+  ":web_ui_stub",
+  ":web_ui_web_stub",
 ]
 
 group("web_sdk") {
@@ -32,64 +51,6 @@ group("web_sdk") {
     ":flutter_platform_dills",
     "//flutter/lib/web_ui/flutter_js",
   ]
-}
-
-sdk_rewriter("web_ui_library_sources") {
-  ui = true
-  input_dir = "//flutter/lib/web_ui/lib/"
-  output_dir = "$root_out_dir/flutter_web_sdk/lib/ui/"
-
-  # exclude everything in the engine directory, it will be a separate internal library
-  exclude_pattern = rebase_path("//flutter/lib/web_ui/lib/src")
-}
-
-web_ui_ui_web_with_output("web_ui_ui_web") {
-  output_dir = "$root_out_dir/flutter_web_sdk/lib/ui_web/"
-}
-
-sdk_rewriter("web_engine_library") {
-  library_name = "engine"
-  api_file = "//flutter/lib/web_ui/lib/src/engine.dart"
-  input_dir = "//flutter/lib/web_ui/lib/src/engine/"
-  output_dir = "$root_out_dir/flutter_web_sdk/lib/_engine/"
-
-  # exclude skwasm, it will be a separate internal library
-  exclude_pattern = rebase_path("//flutter/lib/web_ui/lib/src/engine/skwasm")
-}
-
-sdk_rewriter("skwasm_stub_library") {
-  library_name = "skwasm_stub"
-  api_file = "//flutter/lib/web_ui/lib/src/engine/skwasm/skwasm_stub.dart"
-  input_dir = "//flutter/lib/web_ui/lib/src/engine/skwasm/skwasm_stub/"
-  output_dir = "$root_out_dir/flutter_web_sdk/lib/_skwasm_stub/"
-}
-
-sdk_rewriter("skwasm_impl_library") {
-  library_name = "skwasm_impl"
-  api_file = "//flutter/lib/web_ui/lib/src/engine/skwasm/skwasm_impl.dart"
-  input_dir = "//flutter/lib/web_ui/lib/src/engine/skwasm/skwasm_impl/"
-  output_dir = "$root_out_dir/flutter_web_sdk/lib/_skwasm_impl/"
-}
-
-sdk_rewriter("web_test_fonts_library") {
-  library_name = "web_test_fonts"
-  api_file = "//flutter/third_party/web_test_fonts/lib/web_test_fonts.dart"
-  input_dir = "//flutter/third_party/web_test_fonts/lib/web_test_fonts/"
-  output_dir = "$root_out_dir/flutter_web_sdk/lib/_web_test_fonts/"
-}
-
-sdk_rewriter("web_locale_keymap_library") {
-  library_name = "web_locale_keymap"
-  api_file =
-      "//flutter/third_party/web_locale_keymap/lib/web_locale_keymap.dart"
-  input_dir = "//flutter/third_party/web_locale_keymap/lib/web_locale_keymap/"
-  output_dir = "$root_out_dir/flutter_web_sdk/lib/_web_locale_keymap/"
-}
-
-copy("web_ui_library") {
-  sources = [ "//flutter/web_sdk/libraries.json" ]
-
-  outputs = [ "$root_out_dir/flutter_web_sdk/{{source_file_part}}" ]
 }
 
 # Compiles a Dart program with dartdevc
@@ -204,7 +165,7 @@ template("_compile_platform") {
   assert(defined(invoker.output_dill),
          "output_dill must be defined for $target_name")
   _kernel_worker(target_name) {
-    inputs = [ "sdk_rewriter.dart" ] + web_ui_sources
+    inputs = web_ui_sources
 
     outputs = [ invoker.output_dill ]
     args = []
@@ -217,10 +178,7 @@ template("_compile_platform") {
     if (defined(invoker.null_environment) && invoker.null_environment) {
       args += [ "--null-environment" ]
     }
-    skwasm_library = "dart:_skwasm_stub"
-    if (invoker.kernel_target == "dart2wasm") {
-      skwasm_library = "dart:_skwasm_impl"
-    } else if (invoker.kernel_target == "ddc") {
+    if (invoker.kernel_target == "ddc") {
       args += [ "--include-unsupported-platform-library-stubs" ]
     }
 
@@ -239,18 +197,6 @@ template("_compile_platform") {
       rebase_path(invoker.output_dill),
       "--source",
       "dart:core",
-
-      # Additional Flutter web dart libraries
-      "--source",
-      "dart:ui",
-      "--source",
-      "dart:ui_web",
-      "--source",
-      "dart:_engine",
-      "--source",
-      skwasm_library,
-      "--source",
-      "dart:_web_locale_keymap",
     ]
     if (flutter_prebuilt_dart_sdk) {
       args += [
@@ -302,7 +248,7 @@ template("_compile_ddc_module") {
   assert(defined(invoker.canary), "canary must be defined for $target_name")
 
   _dartdevc(target_name) {
-    inputs = [ "sdk_rewriter.dart" ] + web_ui_sources
+    inputs = web_ui_sources
 
     packages = dart_sdk_package_config
 
@@ -318,13 +264,6 @@ template("_compile_ddc_module") {
     args = [
       "--compile-sdk",
       "dart:core",
-
-      # Additional Flutter web dart libraries
-      "dart:ui",
-      "dart:ui_web",
-      "dart:_engine",
-      "dart:_skwasm_stub",
-      "dart:_web_locale_keymap",
       "--no-summarize",
       "--packages",
       "file:///" + rebase_path(dart_sdk_package_config),

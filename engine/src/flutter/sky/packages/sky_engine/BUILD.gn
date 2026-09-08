@@ -4,7 +4,6 @@
 
 import("//flutter/build/dart/rules.gni")
 import("//flutter/lib/ui/dart_ui.gni")
-import("//flutter/web_sdk/web_sdk.gni")
 import("$dart_src/sdk/lib/_http/http_sources.gni")
 import("$dart_src/sdk/lib/_internal/js_runtime/interceptors_sources.gni")
 import("$dart_src/sdk/lib/_internal/js_shared/js_types_sources.gni")
@@ -208,8 +207,9 @@ copy("copy_dart_ui_fix_data") {
       [ "$root_gen_dir/dart-pkg/sky_engine/lib/fix_data/fix_dart_ui.yaml" ]
 }
 
-web_ui_ui_web_with_output("copy_dart_ui_web") {
-  output_dir = "$root_gen_dir/dart-pkg/sky_engine/lib/ui_web/"
+copy("copy_dart_ui_web") {
+  sources = [ "//flutter/web_sdk/lib/ui_web/ui_web.dart" ]
+  outputs = [ "$root_gen_dir/dart-pkg/sky_engine/lib/ui_web/ui_web.dart" ]
 }
 
 copy("copy_allowed_experiments") {

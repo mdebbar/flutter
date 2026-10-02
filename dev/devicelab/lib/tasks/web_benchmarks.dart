@@ -226,10 +226,11 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
             '--web-browser-flag=--no-sandbox',
             '--web-browser-flag=--password-store=basic',
             if (io.Platform.isMacOS) '--web-browser-flag=--use-mock-keychain',
-            // /dev/shm (tmpfs) filled up to 100% during the DDC script burst,
-            // after which Chrome refused response bodies with
-            // net::ERR_INSUFFICIENT_RESOURCES. Make Chrome use the temp dir for
-            // shared memory instead.
+            // Chrome backs shared memory (e.g. the data pipes that deliver
+            // response bodies) with files in /dev/shm, a tmpfs capped at half
+            // of the RAM. It was 100% full (0 KB available) when loading the
+            // ~1200 DDC scripts failed with net::ERR_INSUFFICIENT_RESOURCES.
+            // Use the temp directory instead.
             if (io.Platform.isLinux) '--web-browser-flag=--disable-dev-shm-usage',
             '--dart-define=FLUTTER_WEB_ENABLE_PROFILING=true',
             '--dart-define=BENCHMARK_SERVER_PORT=${server!.port}',
@@ -252,6 +253,13 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
         ) {
           print('[CHROME STDERR]: $line');
         });
+        // If 'flutter run' (and with it DWDS and the app's asset server) dies
+        // mid-run, page reloads stall without any other output.
+        unawaited(
+          flutterRunProcess!.exitCode.then((int exitCode) {
+            print('[ORCHESTRATOR] flutter run exited with code $exitCode.');
+          }),
+        );
         // Wait for the app to load in DDC's Chrome instance before trying to
         // connect the debugger.
         await ddcAppReady.future;
@@ -274,6 +282,9 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       final collectedProfiles = <Map<String, dynamic>>[];
       List<String>? benchmarks;
       late Iterator<String> benchmarkIterator;
+      // Last orchestration request from the app, reported by the stall watchdog below.
+      var lastRequest = 'none';
+      var lastRequestTime = DateTime.now();
 
       var cascade = Cascade();
       List<Map<String, dynamic>>? latestPerformanceTrace;
@@ -291,6 +302,10 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       };
 
       cascade = cascade.add((Request request) async {
+        if (request.method != 'OPTIONS') {
+          lastRequest = request.requestedUri.path;
+          lastRequestTime = DateTime.now();
+        }
         final String requestContents = await request.readAsString();
         try {
           chrome ??= await whenChromeIsReady;
@@ -413,16 +428,22 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
 
       if (benchmarkOptions.useDdc) {
         // DDC reuses the existing Chrome connection spawned via 'flutter run'.
-        whenChromeIsReady = Chrome.connect(
-          flutterRunProcess!,
-          options,
-          onError: (String error) {
-            if (!profileData.isCompleted) {
-              profileData.completeError(Exception(error));
-            }
-          },
-          workingDirectory: cwd,
-        );
+        whenChromeIsReady =
+            Chrome.connect(
+              flutterRunProcess!,
+              options,
+              onError: (String error) {
+                if (!profileData.isCompleted) {
+                  profileData.completeError(Exception(error));
+                }
+              },
+              workingDirectory: cwd,
+            ).then((Chrome c) async {
+              // Page reloads between DDC benchmarks go through DWDS and
+              // occasionally stall; these logs show where.
+              await c.logPageEvents();
+              return c;
+            });
       } else {
         whenChromeIsReady = Chrome.launch(
           options,
@@ -436,10 +457,35 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       }
       unawaited(whenChromeIsReady?.then((Chrome c) => chrome = c, onError: (_) {}));
 
+      // Healthy runs make an orchestration request at least every couple of
+      // minutes. When none arrives for 5 minutes, log the page state so that a
+      // stalled page reload can be diagnosed from the CI logs. This only logs;
+      // the recipe's test timeout ends a stalled run.
+      const stallThreshold = Duration(minutes: 5);
+      final stallWatchdog = Timer.periodic(const Duration(minutes: 1), (_) async {
+        final Duration idle = DateTime.now().difference(lastRequestTime);
+        if (idle < stallThreshold) {
+          return;
+        }
+        print(
+          '[ORCHESTRATOR] No request from the app for ${idle.inSeconds}s (last: $lastRequest).',
+        );
+        try {
+          print('[ORCHESTRATOR] ${await chrome?.describeState() ?? 'Chrome is not connected.'}');
+        } on Exception catch (error) {
+          print('[ORCHESTRATOR] Failed to describe page state: $error');
+        }
+      });
+
       print('Waiting for the benchmark to report benchmark profile.');
       final taskResult = <String, dynamic>{};
       final benchmarkScoreKeys = <String>[];
-      final List<Map<String, dynamic>> profiles = await profileData.future;
+      final List<Map<String, dynamic>> profiles;
+      try {
+        profiles = await profileData.future;
+      } finally {
+        stallWatchdog.cancel();
+      }
 
       print('Received profile data');
       for (final profile in profiles) {

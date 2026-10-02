@@ -26,9 +26,6 @@ const kGcmDisabledFlags = <String>[
 /// Keep this constant in sync with the same constant defined in `dev/benchmarks/macrobenchmarks/lib/src/web/recorder.dart`.
 const int _kMeasuredSampleCount = 10;
 
-/// Where Chrome writes its own log (diagnostics for ERR_INSUFFICIENT_RESOURCES).
-final String _chromeLogPath = '${io.Directory.systemTemp.path}/chrome_debug_${io.pid}.log';
-
 /// Options passed to Chrome when launching it.
 class ChromeOptions {
   ChromeOptions({
@@ -149,8 +146,6 @@ class Chrome {
       '--disable-search-engine-choice-screen',
       if (io.Platform.isMacOS) '--use-mock-keychain',
       if (jsFlags.isNotEmpty) '--js-flags=$jsFlags',
-      '--enable-logging',
-      '--log-file=$_chromeLogPath',
     ];
 
     final io.Process chromeProcess = await _spawnChromiumProcess(
@@ -275,371 +270,35 @@ class Chrome {
     await _debugConnection?.page.reload(ignoreCache: ignoreCache);
   }
 
-  var _describedShmBeforeGc = false;
-
   /// Forces a full garbage collection (V8 + Oilpan) in the page.
   ///
-  /// Every benchmark page leaves ~2.5 GB of unlinked `/dev/shm` segments that
-  /// are reachable only from its detached document once the harness reloads to
-  /// the next benchmark. Chrome releases them only on a major GC, whose cadence
-  /// follows JS heap growth (~130 MB per detached document), not shared-memory
-  /// usage, so 5-6 uncollected documents fill the 15 GB tmpfs (50% of RAM on
-  /// the Linux bots) and the next page's script requests fail with
-  /// `net::ERR_INSUFFICIENT_RESOURCES`. Collecting before each reload keeps at
-  /// most one detached document alive (`/dev/shm` peaks at ~35%).
+  /// When the page reloads, the previous document is detached but stays
+  /// GC-reachable until the next major GC, together with ~2.5 GB of unlinked
+  /// `/dev/shm` segments it holds. Major GC cadence follows JS heap growth, not
+  /// shared-memory usage, so a few uncollected reloads (6 on the Linux bots,
+  /// where `/dev/shm` is a tmpfs capped at 50% of RAM) fill `/dev/shm` and
+  /// Chrome refuses response bodies with `net::ERR_INSUFFICIENT_RESOURCES`.
+  /// Collecting before each reload keeps at most one detached document alive.
+  ///
+  /// No-op when there is no debug connection.
   Future<void> collectGarbage() async {
     final WipConnection? debugConnection = _debugConnection;
     if (debugConnection == null) {
       return;
-    }
-    final String before = describeShm(detailed: false);
-    // Once per run, while the garbage is still alive, name the holder process
-    // type and the segment size quantum.
-    final bool detailed = !_describedShmBeforeGc && !before.contains(' 0% /dev/shm');
-    if (detailed) {
-      _describedShmBeforeGc = true;
-      print('[ORCHESTRATOR] shm: before GC ${describeShm(detailed: true)}');
     }
     try {
       await debugConnection
           .sendCommand('HeapProfiler.collectGarbage')
           .timeout(const Duration(seconds: 30));
     } on Object catch (error) {
-      print('[ORCHESTRATOR] HeapProfiler.collectGarbage failed: $error');
+      print('HeapProfiler.collectGarbage failed: $error');
     }
-    print(
-      '[ORCHESTRATOR] shm: before/after GC ${_shmUse(before)} -> ${_shmUse(describeShm(detailed: false))}',
-    );
-  }
-
-  static String _shmUse(String shm) => RegExp(r'\d+% /dev/shm').firstMatch(shm)?.group(0) ?? shm;
-
-  StreamSubscription<WipEvent>? _pageEventSubscription;
-  var _probedRefusal = false;
-  var _loadCount = 0;
-  // The page's requests as DevTools reports them: requests that neither
-  // finished nor failed yet (kept across navigations, to expose leftovers of
-  // earlier documents), and, since the last main frame navigation, the ones that
-  // reached the network stack (`requestWillBeSentExtraInfo`) and the ones that
-  // failed with ERR_INSUFFICIENT_RESOURCES.
-  final _unfinishedRequests = <String, String>{};
-  final _requestsSentToServer = <String>{};
-  // Requests whose response headers reached the network stack, and whose
-  // response (with its body pipe) reached the renderer.
-  final _responseHeadersReceived = <String>{};
-  final _responsesDelivered = <String>{};
-  final _refusedRequests = <String>{};
-  var _requestsSinceNavigation = 0;
-
-  /// Logs page navigations, load events, uncaught JS exceptions, and renderer
-  /// crashes, so that a page load that never completes can be diagnosed from
-  /// the logs.
-  ///
-  /// This enables the Page, Runtime, Log, Inspector, and Network DevTools
-  /// domains, which adds instrumentation overhead to the page. Only use it for
-  /// uncalibrated runs.
-  Future<void> logPageEvents() async {
-    final WipConnection debugConnection = _debugConnection!;
-    _pageEventSubscription = debugConnection.onNotification.listen((WipEvent event) {
-      final Map<String, dynamic> params = event.params ?? const <String, dynamic>{};
-      final requestId = params['requestId'] as String?;
-      switch (event.method) {
-        case 'Network.requestWillBeSent':
-          _requestsSinceNavigation++;
-          _unfinishedRequests[requestId!] =
-              '${params['type']} ${(params['request'] as Map<String, dynamic>)['url']}';
-        case 'Network.requestWillBeSentExtraInfo':
-          _requestsSentToServer.add(requestId!);
-        case 'Network.responseReceivedExtraInfo':
-          _responseHeadersReceived.add(requestId!);
-        case 'Network.responseReceived':
-          _responsesDelivered.add(requestId!);
-        case 'Network.loadingFinished':
-          _unfinishedRequests.remove(requestId);
-        case 'Network.loadingFailed':
-          _unfinishedRequests.remove(requestId);
-          if ('${params['errorText']}'.contains('ERR_INSUFFICIENT_RESOURCES')) {
-            _refusedRequests.add(requestId!);
-          }
-        case 'Page.frameNavigated'
-            when (params['frame'] as Map<String, dynamic>)['parentId'] == null:
-          _requestsSinceNavigation = 0;
-          _requestsSentToServer.clear();
-          _responseHeadersReceived.clear();
-          _responsesDelivered.clear();
-          _refusedRequests.clear();
-      }
-      final String? message = switch (event.method) {
-        'Page.frameNavigated' => 'navigated to ${(params['frame'] as Map<String, dynamic>)['url']}',
-        'Page.loadEventFired' => 'load event fired',
-        'Runtime.consoleAPICalled' =>
-          'console.${params['type']}: ${_describeConsoleArgs(params['args'] as List<dynamic>)}',
-        'Runtime.exceptionThrown' =>
-          'uncaught exception: ${_describeException(params['exceptionDetails'] as Map<String, dynamic>)}',
-        'Log.entryAdded' => _describeLogEntry(params['entry'] as Map<String, dynamic>),
-        'Inspector.targetCrashed' => 'renderer process crashed',
-        'Inspector.detached' => 'DevTools session detached: ${params['reason']}',
-        _ => null,
-      };
-      if (message != null) {
-        print('[CHROME PAGE] $message');
-      }
-      if (!_probedRefusal && (message?.contains('ERR_INSUFFICIENT_RESOURCES') ?? false)) {
-        _probedRefusal = true;
-        unawaited(probeRenderer());
-      }
-      if (event.method == 'Page.loadEventFired') {
-        _loadCount++;
-        final String shm = describeShm(detailed: false);
-        print('[ORCHESTRATOR] shm: after load #$_loadCount $shm');
-        // One zombie page (~2.5 GB, 17%) short of a full /dev/shm: force a V8
-        // GC and re-sample. A drop proves the segments belong to GC-reachable
-        // garbage of previous documents (H14) and the next load then succeeds;
-        // no drop means the release is not GC-driven (H15).
-        final int shmUsePercent = int.parse(
-          RegExp(r'(\d+)% /dev/shm').firstMatch(shm)?.group(1) ?? '0',
-        );
-        if (shmUsePercent >= 80) {
-          unawaited(
-            _cdp('HeapProfiler.collectGarbage').then((_) {
-              print(
-                '[ORCHESTRATOR] shm: after forced GC at load #$_loadCount '
-                '${describeShm(detailed: true)}',
-              );
-            }),
-          );
-        }
-        unawaited(
-          _cdp('Memory.getDOMCounters').then((String counters) async {
-            print(
-              '[CHROME PAGE] after load: counters=$counters heap=${await _cdp('Runtime.getHeapUsage')} '
-              '${_describeNetwork()}',
-            );
-          }),
-        );
-      }
-    });
-    for (final domain in <String>['Page', 'Runtime', 'Log', 'Inspector']) {
-      await debugConnection.sendCommand('$domain.enable');
-    }
-    // Only the request lifecycle events are needed, not buffered response bodies.
-    await debugConnection.sendCommand('Network.enable', <String, dynamic>{
-      'maxTotalBufferSize': 1,
-      'maxResourceBufferSize': 1,
-    });
-    // DDC loads 600+ library scripts per reload, which overflows the default
-    // 250-entry Resource Timing buffer.
-    await debugConnection.sendCommand('Page.addScriptToEvaluateOnNewDocument', <String, dynamic>{
-      'source': 'performance.setResourceTimingBufferSize(2000);',
-    });
-  }
-
-  static String _describeConsoleArgs(List<dynamic> args) {
-    return args
-        .map((dynamic arg) {
-          final map = arg as Map<String, dynamic>;
-          return '${map['value'] ?? map['description'] ?? map['type']}';
-        })
-        .join(' ');
-  }
-
-  static String _describeException(Map<String, dynamic> exceptionDetails) {
-    final exception = exceptionDetails['exception'] as Map<String, dynamic>?;
-    // The description of a JS Error includes its stack trace.
-    return '${exception?['description'] ?? exceptionDetails['text']}';
-  }
-
-  static String _describeLogEntry(Map<String, dynamic> entry) {
-    final url = entry['url'] as String?;
-    final suffix = url != null && url.isNotEmpty ? ' ($url)' : '';
-    return 'log.${entry['level']}: ${entry['text']}$suffix';
-  }
-
-  /// Describes the state of the page, for diagnosing a stalled page load.
-  ///
-  /// Distinguishes three cases: the page responds and its timers fire (the
-  /// app is idle, e.g. waiting on a request); the page responds but timers
-  /// don't fire (JavaScript is paused in the debugger, which DWDS keeps
-  /// attached under `flutter run`); the page doesn't respond at all (the
-  /// renderer main thread is blocked).
-  Future<String> describeState() async {
-    const timeout = Duration(seconds: 10);
-    Future<String> evaluate(String expression, {bool awaitPromise = false}) async {
-      final WipResponse response = await _debugConnection!
-          .sendCommand('Runtime.evaluate', <String, dynamic>{
-            'expression': expression,
-            'returnByValue': true,
-            'awaitPromise': awaitPromise,
-          })
-          .timeout(timeout);
-      return '${(response.result!['result'] as Map<String, dynamic>)['value']}';
-    }
-
-    const pageState = r'''
-(() => {
-  const loaded = new Set(performance.getEntriesByType('resource').map((e) => e.name));
-  const scripts = document.head ? Array.from(document.head.querySelectorAll('script')) : [];
-  const loader = window.$dartLoader?.loader;
-  return JSON.stringify({
-    href: location.href,
-    readyState: document.readyState,
-    msSinceNavigationStart: Math.round(performance.now()),
-    dwdsInitialized: Boolean(window.$dwdsInitialized),
-    dartMainExecuted: Boolean(window.$dartMainExecuted),
-    dartAppInstanceId: window.$dartAppInstanceId ?? null,
-    resourceCount: loaded.size,
-    scriptTagCount: scripts.length,
-    pendingScripts: scripts.map((s) => s.src).filter((src) => src && !loaded.has(src)),
-    lastLoadedResources: performance.getEntriesByType('resource').slice(-5).map((e) => e.name),
-    loader: loader ? {
-      attemptCount: loader.attemptCount,
-      numToLoad: loader.numToLoad,
-      numLoaded: loader.numLoaded,
-      numFailed: loader.numFailed,
-      queueLength: loader.queue.length,
-    } : null,
-  });
-})()''';
-    final lines = <String>[];
-    try {
-      lines.add('Page: ${await evaluate(pageState)}');
-      await evaluate('new Promise((resolve) => setTimeout(resolve, 100))', awaitPromise: true);
-      lines.add('Event loop: running.');
-    } on TimeoutException {
-      lines.add(
-        lines.isEmpty
-            ? 'Page did not respond within ${timeout.inSeconds}s; the renderer main thread is blocked.'
-            : 'Event loop: a 100ms timer did not fire within ${timeout.inSeconds}s; '
-                  'JavaScript is likely paused in the debugger.',
-      );
-    }
-    return lines.join('\n');
-  }
-
-  /// Sends a DevTools command and describes its result, or its failure.
-  Future<String> _cdp(String method, [Map<String, dynamic>? params]) async {
-    try {
-      final WipResponse response = await _debugConnection!
-          .sendCommand(method, params)
-          .timeout(const Duration(seconds: 10));
-      final Map<String, dynamic>? result = response.result;
-      final Object? evaluated = result?['result'];
-      return '${evaluated is Map<String, dynamic> ? evaluated['value'] : result}';
-    } on Object catch (error) {
-      return 'failed: $error';
-    }
-  }
-
-  /// Logs how a `net::ERR_INSUFFICIENT_RESOURCES` page load failure looks from
-  /// the outside, while the page is still refusing requests.
-  ///
-  /// The refusal heals within seconds without a garbage collection, so this
-  /// polls a new request every 100ms to time it, and logs the shape of the
-  /// failing load (concurrency, from Resource Timing) and the requests that
-  /// DevTools considers unfinished or refused.
-  Future<void> probeRenderer() async {
-    const fetchProbe = <String, dynamic>{
-      'expression':
-          "fetch('/favicon.ico?probe=' + Date.now(), {cache: 'no-store'}) "
-          ".then((r) => 'fetch status ' + r.status, (e) => 'fetch ' + e)",
-      'awaitPromise': true,
-      'returnByValue': true,
-    };
-    const loadProfile = <String, dynamic>{
-      'expression': '''
-(() => {
-  const entries = performance.getEntriesByType('resource');
-  const edges = entries.flatMap((e) => [[e.startTime, 1], [e.responseEnd, -1]]);
-  edges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  let inFlight = 0;
-  let peak = 0;
-  for (const [, delta] of edges) {
-    inFlight += delta;
-    peak = Math.max(peak, inFlight);
-  }
-  return JSON.stringify({
-    resources: entries.length,
-    peakInFlight: peak,
-    firstStartMs: Math.round(Math.min(...entries.map((e) => e.startTime))),
-    lastEndMs: Math.round(Math.max(...entries.map((e) => e.responseEnd))),
-    nowMs: Math.round(performance.now()),
-  });
-})()''',
-      'returnByValue': true,
-    };
-
-    print(
-      '[CHROME PAGE] probe at first refusal: load=${await _cdp('Runtime.evaluate', loadProfile)} '
-      '${_describeNetwork()} system: ${_describeSystem()}',
-    );
-    print('[ORCHESTRATOR] shm: at first refusal ${describeShm(detailed: true)}');
-    final healing = Stopwatch()..start();
-    String fetchResult = await _cdp('Runtime.evaluate', fetchProbe);
-    while (!fetchResult.contains('status') && healing.elapsed < const Duration(seconds: 10)) {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      fetchResult = await _cdp('Runtime.evaluate', fetchProbe);
-    }
-    print(
-      '[CHROME PAGE] probe healed after ${healing.elapsedMilliseconds}ms: $fetchResult '
-      '${_describeNetwork()} system: ${_describeSystem()}',
-    );
-    print('[ORCHESTRATOR] shm: after healing ${describeShm(detailed: true)}');
-    // Same H14/H15 split on the stalled page (the loader already gave up, so
-    // this cannot rescue the build): does a V8 GC give /dev/shm back?
-    await _cdp('HeapProfiler.collectGarbage');
-    print('[ORCHESTRATOR] shm: after forced GC at refusal ${describeShm(detailed: true)}');
-    await Future<void>.delayed(const Duration(seconds: 5));
-    print(
-      '[CHROME PAGE] probe 5s after healing: counters=${await _cdp('Memory.getDOMCounters')} '
-      '${await _cdp('Runtime.evaluate', fetchProbe)} ${_describeNetwork()}',
-    );
-    // Chrome's own log, minus the page's console messages and D-Bus noise.
-    final io.ProcessResult chromeLog = io.Process.runSync('sh', <String>[
-      '-c',
-      "grep -v -E 'CONSOLE|dbus|DBus' $_chromeLogPath | tail -n 40",
-    ]);
-    print('[CHROME PAGE] chrome log tail:\n${chromeLog.stdout}${chromeLog.stderr}');
-  }
-
-  /// Snapshot of the limits and usage that could make Chrome fail to allocate
-  /// a file descriptor, shared memory, or memory: the soft and hard `ulimit -n`,
-  /// `/dev/shm` and temp directory usage (`df -k`), and memory (`free -m`).
-  String _describeSystem() {
-    final io.ProcessResult result = io.Process.runSync('sh', <String>[
-      '-c',
-      r'echo nofile=$(ulimit -n)/$(ulimit -Hn); df -k /dev/shm "$1" | tail -n 2; free -m | sed -n 2p',
-      'sh',
-      io.Directory.systemTemp.path,
-    ]);
-    return '${result.stdout}${result.stderr}'.trim().replaceAll(RegExp(r'\s*\n\s*'), ' | ');
-  }
-
-  /// Describes the page's requests as DevTools saw them since the last
-  /// navigation of the main frame (and the ones still unfinished before it).
-  ///
-  /// A refused request that never reached the network stack (no
-  /// `requestWillBeSentExtraInfo`) was refused when its loader was created, e.g.
-  /// by a per-process cap on live loaders. One that did reach it was refused
-  /// later: before its response headers arrived (no `responseReceivedExtraInfo`),
-  /// between the headers and the delivery of the response to the renderer (no
-  /// `responseReceived`, e.g. a data pipe could not be created), or after.
-  String _describeNetwork() {
-    final types = <String, int>{};
-    for (final String request in _unfinishedRequests.values) {
-      types.update(request.split(' ').first, (int count) => count + 1, ifAbsent: () => 1);
-    }
-    return 'net: requests=$_requestsSinceNavigation unfinished=${_unfinishedRequests.length} $types '
-        'oldest=${_unfinishedRequests.values.take(3).toList()} refused=${_refusedRequests.length} '
-        'refusedAfterSend=${_refusedRequests.where(_requestsSentToServer.contains).length} '
-        'refusedAfterHeaders=${_refusedRequests.where(_responseHeadersReceived.contains).length} '
-        'refusedAfterResponse=${_refusedRequests.where(_responsesDelivered.contains).length}';
   }
 
   /// Disconnects from the Chrome process without killing it.
   void disconnect() {
     _isStopped = true;
     _tracingSubscription?.cancel();
-    _pageEventSubscription?.cancel();
   }
 
   /// Stops the Chrome process.
@@ -647,36 +306,6 @@ class Chrome {
     disconnect();
     _chromeProcess.kill();
   }
-}
-
-/// One-line `/dev/shm` snapshot: `df` usage, visible file count and bytes (`du`),
-/// and, when [detailed], the largest visible entries (numeric uid, size, mtime,
-/// name), name patterns (digits collapsed to `N`), and from `lsof` (if
-/// installed; it also covers unlinked files that `ls`/`du` cannot see, Chrome
-/// unlinks its shm files right after creation): bytes per process holding files
-/// open, the Chrome `--type=` role and RSS of the top holders, a histogram of
-/// distinct segment sizes (which allocator), and the fd/mem/deleted row split.
-String describeShm({required bool detailed}) {
-  const brief =
-      r'df -k /dev/shm | tail -n 1; '
-      r'echo "visible: files=$(ls -A /dev/shm | wc -l) du=$(du -sk /dev/shm 2>/dev/null | cut -f1)KB"';
-  const full =
-      r'echo largest:; ls -lAn --time-style=+%H:%M:%S /dev/shm | sort -k5 -n -r | head -n 10 | '
-      r'awk "{print \$3, \$5, \$6, \$7}"; '
-      r'echo patterns:; ls -A /dev/shm | sed -E "s/[0-9]+/N/g" | sort | uniq -c | sort -rn | head -n 8; '
-      r'echo "open (bytes count command pid user):"; '
-      r'if command -v lsof >/dev/null; then L=$(mktemp); lsof -nP /dev/shm >"$L" 2>/dev/null; '
-      r'awk "NR>1 {k=\$1\" \"\$2\" \"\$3; b[k]+=\$7; n[k]++} END {for (k in b) print b[k], n[k], k}" "$L" | '
-      r'sort -rn | head -n 10; '
-      r'echo "roles (pid rssKB type):"; for p in $(awk "NR>1 {print \$2}" "$L" | sort | uniq -c | sort -rn | head -n 4 | awk "{print \$2}"); do '
-      r'ps -o pid=,rss=,args= -p "$p" | awk "{t=\"browser\"; for (i=3; i<=NF; i++) if (\$i ~ /^--type=/) t=substr(\$i, 8); print \$1, \$2, t}"; done; '
-      r'echo "sizes (count x bytes, distinct pid+inode):"; '
-      r'awk "NR>1 && !seen[\$2\" \"\$8]++ {c[\$7]++} END {for (s in c) print c[s] \"x\" s}" "$L" | sort -t x -k1 -rn | head -n 6; '
-      r'echo "rows: fd=$(awk "NR>1 && \$4 != \"mem\"" "$L" | wc -l) mem=$(awk "NR>1 && \$4 == \"mem\"" "$L" | wc -l) deleted=$(grep -c deleted "$L")"; '
-      r'rm -f "$L"; else echo lsof-missing; fi';
-  final script = detailed ? '$brief; $full' : brief;
-  final io.ProcessResult result = io.Process.runSync('sh', <String>['-c', script]);
-  return '${result.stdout}${result.stderr}'.trim().replaceAll(RegExp(r'\s*\n\s*'), ' | ');
 }
 
 String _findSystemChromeExecutable() {

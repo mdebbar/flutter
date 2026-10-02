@@ -147,9 +147,6 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
             return 0;
           },
         );
-        // Whether this task's Chrome gave its /dev/shm share back.
-        await Future<void>.delayed(const Duration(seconds: 2));
-        print('[ORCHESTRATOR] shm: after flutter run exit ${describeShm(detailed: true)}');
       }
 
       // 4. Clean up temporary directory
@@ -192,15 +189,6 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       await flutter('clean');
 
       server = await io.HttpServer.bind('localhost', benchmarkServerPort);
-
-      // /dev/shm before this task's Chrome exists: anything in it now came from
-      // earlier tasks on this bot.
-      final Map<String, String> env = io.Platform.environment;
-      print(
-        '[ORCHESTRATOR] shm: at task start bot=${env['SWARMING_BOT_ID']} '
-        'task=${env['SWARMING_TASK_ID']} host=${io.Platform.localHostname} '
-        '${describeShm(detailed: true)}',
-      );
 
       // DDC runs the benchmarks suite with 'flutter run', attaching to its
       // Chrome instance instead of starting a new one.
@@ -259,13 +247,6 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
         ) {
           print('[CHROME STDERR]: $line');
         });
-        // If 'flutter run' (and with it DWDS and the app's asset server) dies
-        // mid-run, page reloads stall without any other output.
-        unawaited(
-          flutterRunProcess!.exitCode.then((int exitCode) {
-            print('[ORCHESTRATOR] flutter run exited with code $exitCode.');
-          }),
-        );
         // Wait for the app to load in DDC's Chrome instance before trying to
         // connect the debugger.
         await ddcAppReady.future;
@@ -288,9 +269,6 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       final collectedProfiles = <Map<String, dynamic>>[];
       List<String>? benchmarks;
       late Iterator<String> benchmarkIterator;
-      // Last orchestration request from the app, reported by the stall watchdog below.
-      var lastRequest = 'none';
-      var lastRequestTime = DateTime.now();
 
       var cascade = Cascade();
       List<Map<String, dynamic>>? latestPerformanceTrace;
@@ -308,10 +286,6 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       };
 
       cascade = cascade.add((Request request) async {
-        if (request.method != 'OPTIONS') {
-          lastRequest = request.requestedUri.path;
-          lastRequestTime = DateTime.now();
-        }
         final String requestContents = await request.readAsString();
         try {
           chrome ??= await whenChromeIsReady;
@@ -369,9 +343,9 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
             if (benchmarkIterator.moveNext()) {
               final String nextBenchmark = benchmarkIterator.current;
               // The page reloads as soon as it receives the next benchmark
-              // name. Collect the previous benchmarks' detached documents first,
-              // before their /dev/shm segments accumulate (see
-              // Chrome.collectGarbage).
+              // name. Collect the previous benchmarks' detached documents first
+              // so their /dev/shm segments do not accumulate across reloads
+              // (see Chrome.collectGarbage).
               await chrome!.collectGarbage();
               print('Launching benchmark "$nextBenchmark"');
               return Response.ok(nextBenchmark, headers: requestHeaders);
@@ -439,22 +413,16 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
 
       if (benchmarkOptions.useDdc) {
         // DDC reuses the existing Chrome connection spawned via 'flutter run'.
-        whenChromeIsReady =
-            Chrome.connect(
-              flutterRunProcess!,
-              options,
-              onError: (String error) {
-                if (!profileData.isCompleted) {
-                  profileData.completeError(Exception(error));
-                }
-              },
-              workingDirectory: cwd,
-            ).then((Chrome c) async {
-              // Page reloads between DDC benchmarks go through DWDS and
-              // occasionally stall; these logs show where.
-              await c.logPageEvents();
-              return c;
-            });
+        whenChromeIsReady = Chrome.connect(
+          flutterRunProcess!,
+          options,
+          onError: (String error) {
+            if (!profileData.isCompleted) {
+              profileData.completeError(Exception(error));
+            }
+          },
+          workingDirectory: cwd,
+        );
       } else {
         whenChromeIsReady = Chrome.launch(
           options,
@@ -468,35 +436,10 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       }
       unawaited(whenChromeIsReady?.then((Chrome c) => chrome = c, onError: (_) {}));
 
-      // Healthy runs make an orchestration request at least every couple of
-      // minutes. When none arrives for 5 minutes, log the page state so that a
-      // stalled page reload can be diagnosed from the CI logs. This only logs;
-      // the recipe's test timeout ends a stalled run.
-      const stallThreshold = Duration(minutes: 5);
-      final stallWatchdog = Timer.periodic(const Duration(minutes: 1), (_) async {
-        final Duration idle = DateTime.now().difference(lastRequestTime);
-        if (idle < stallThreshold) {
-          return;
-        }
-        print(
-          '[ORCHESTRATOR] No request from the app for ${idle.inSeconds}s (last: $lastRequest).',
-        );
-        try {
-          print('[ORCHESTRATOR] ${await chrome?.describeState() ?? 'Chrome is not connected.'}');
-        } on Exception catch (error) {
-          print('[ORCHESTRATOR] Failed to describe page state: $error');
-        }
-      });
-
       print('Waiting for the benchmark to report benchmark profile.');
       final taskResult = <String, dynamic>{};
       final benchmarkScoreKeys = <String>[];
-      final List<Map<String, dynamic>> profiles;
-      try {
-        profiles = await profileData.future;
-      } finally {
-        stallWatchdog.cancel();
-      }
+      final List<Map<String, dynamic>> profiles = await profileData.future;
 
       print('Received profile data');
       for (final profile in profiles) {

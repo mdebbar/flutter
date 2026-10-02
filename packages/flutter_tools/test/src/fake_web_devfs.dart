@@ -163,6 +163,9 @@ class FakeDwds extends Fake implements Dwds {
 /// A fake [AppConnection] for testing.
 class FakeAppConnection extends Fake implements AppConnection {
   @override
+  Future<void> get onStart => Future<void>.value();
+
+  @override
   void runMain() {}
 }
 

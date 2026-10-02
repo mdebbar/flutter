@@ -270,16 +270,459 @@ class Chrome {
     await _debugConnection?.page.reload(ignoreCache: ignoreCache);
   }
 
+  StreamSubscription<WipEvent>? _pageEventSubscription;
+  final _PageLogLimiter _pageLogLimiter = _PageLogLimiter();
+
+  /// Logs page navigations, load events, console output, uncaught JS
+  /// exceptions, resource loading errors (such as `net::ERR_*`), and renderer
+  /// crashes, so that a page load that never completes can be diagnosed from
+  /// the logs.
+  ///
+  /// This enables the Page, Runtime, Log, and Inspector DevTools domains, which
+  /// adds instrumentation overhead to the page. Only use it for diagnosing
+  /// uncalibrated runs.
+  ///
+  /// Each line is stamped with the elapsed time of [clock].
+  Future<void> logPageEvents({required Stopwatch clock}) async {
+    final WipConnection debugConnection = _debugConnection!;
+    _pageEventSubscription = debugConnection.onNotification.listen((WipEvent event) {
+      try {
+        _logPageEvent(event, clock);
+      } on Object catch (error) {
+        print('[CHROME PAGE] Failed to log ${event.method}: $error');
+      }
+    });
+    for (final domain in <String>['Page', 'Runtime', 'Log', 'Inspector']) {
+      await debugConnection.sendCommand('$domain.enable');
+    }
+    // DDC loads 1000+ library scripts per reload, which overflows the default
+    // 250-entry Resource Timing buffer.
+    await debugConnection.sendCommand('Page.addScriptToEvaluateOnNewDocument', <String, dynamic>{
+      'source': 'performance.setResourceTimingBufferSize(3000);',
+    });
+  }
+
+  void _logPageEvent(WipEvent event, Stopwatch clock) {
+    final Map<String, dynamic> params = event.params ?? const <String, dynamic>{};
+    final (String, String)? entry = switch (event.method) {
+      // Frames that have a parent are not the page itself.
+      'Page.frameNavigated' when (params['frame'] as Map<String, dynamic>)['parentId'] == null => (
+        'navigation',
+        'navigated to ${(params['frame'] as Map<String, dynamic>)['url']}',
+      ),
+      'Page.frameRequestedNavigation' => (
+        'navigation',
+        'navigation requested by the page (${params['reason']}) to ${params['url']}',
+      ),
+      'Page.frameStartedNavigating' => (
+        'navigation',
+        'navigation started (${params['navigationType']}) to ${params['url']}',
+      ),
+      'Page.frameStartedLoading' => ('navigation', 'frame started loading'),
+      'Page.frameStoppedLoading' => ('navigation', 'frame stopped loading'),
+      'Page.domContentEventFired' => ('navigation', 'DOMContentLoaded event fired'),
+      'Page.loadEventFired' => ('navigation', 'load event fired'),
+      'Runtime.consoleAPICalled' => (
+        'console',
+        'console.${params['type']}: ${_describeConsoleArgs(params['args'] as List<dynamic>)}',
+      ),
+      'Runtime.exceptionThrown' => (
+        'exception',
+        'uncaught exception: ${_describeException(params['exceptionDetails'] as Map<String, dynamic>)}',
+      ),
+      'Log.entryAdded' => ('log', _describeLogEntry(params['entry'] as Map<String, dynamic>)),
+      'Inspector.targetCrashed' => ('fatal', 'renderer process crashed'),
+      'Inspector.detached' => ('fatal', 'DevTools session detached: ${params['reason']}'),
+      _ => null,
+    };
+    if (entry == null) {
+      return;
+    }
+    final String timestamp = (clock.elapsedMilliseconds / 1000).toStringAsFixed(1);
+    final (String category, String message) = entry;
+    if (event.method == 'Page.frameNavigated') {
+      final String? suppressed = _pageLogLimiter.takeSuppressedSummary();
+      if (suppressed != null) {
+        print('[CHROME PAGE] t=${timestamp}s (previous document) $suppressed');
+      }
+    }
+    if (_pageLogLimiter.allow(category, message)) {
+      print('[CHROME PAGE] t=${timestamp}s $message');
+    }
+  }
+
+  /// Describes the console and log messages of the current document, including
+  /// those that [logPageEvents] did not print individually.
+  String describePageLogCounts() => _pageLogLimiter.describeCounts();
+
+  static String _describeConsoleArgs(List<dynamic> args) {
+    return args
+        .map((dynamic arg) {
+          final map = arg as Map<String, dynamic>;
+          return '${map['value'] ?? map['description'] ?? map['type']}';
+        })
+        .join(' ');
+  }
+
+  static String _describeException(Map<String, dynamic> exceptionDetails) {
+    final exception = exceptionDetails['exception'] as Map<String, dynamic>?;
+    // The description of a JS Error includes its stack trace.
+    return '${exception?['description'] ?? exceptionDetails['text']}';
+  }
+
+  static String _describeLogEntry(Map<String, dynamic> entry) {
+    final url = entry['url'] as String?;
+    final suffix = url != null && url.isNotEmpty ? ' ($url)' : '';
+    return 'log.${entry['level']}: ${entry['text']}$suffix';
+  }
+
+  /// Evaluates [expression] in the page behind [connection] and returns the
+  /// result as a string.
+  ///
+  /// Throws a [TimeoutException] if the page does not respond within
+  /// [timeout], e.g. because its main thread is blocked.
+  static Future<String> _evaluate(
+    WipConnection connection,
+    String expression, {
+    required bool awaitPromise,
+    required Duration timeout,
+  }) async {
+    final WipResponse response = await connection
+        .sendCommand('Runtime.evaluate', <String, dynamic>{
+          'expression': expression,
+          'returnByValue': true,
+          'awaitPromise': awaitPromise,
+        })
+        .timeout(timeout);
+    final result = response.result!['result'] as Map<String, dynamic>;
+    return '${result['value'] ?? result['description']}';
+  }
+
+  /// Returns whether the page answers `Runtime.evaluate` within [timeout].
+  ///
+  /// It does not while its renderer main thread is blocked, nor while a
+  /// navigation has started but not committed yet.
+  Future<bool> isResponsive({required Duration timeout}) async {
+    try {
+      await _evaluate(_debugConnection!, '1', awaitPromise: false, timeout: timeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    }
+  }
+
+  /// Describes the state of the page, for diagnosing a stalled page load.
+  ///
+  /// Distinguishes three cases: the page responds and its timers fire (the
+  /// app is idle, e.g. waiting on a request); the page responds but timers
+  /// don't fire (JavaScript is paused in the debugger, which DWDS keeps
+  /// attached under `flutter run`); the page doesn't respond at all (see
+  /// [isResponsive]).
+  Future<String> describeState() async {
+    const timeout = Duration(seconds: 10);
+    final WipConnection debugConnection = _debugConnection!;
+    const pageState = r'''
+(() => {
+  try {
+    const resources = performance.getEntriesByType('resource');
+    const loaded = new Set(resources.map((e) => e.name));
+    const scripts = document.head ? Array.from(document.head.querySelectorAll('script')) : [];
+    const pending = scripts.map((s) => s.src).filter((src) => src && !loaded.has(src));
+    const loader = window.$dartLoader?.loader;
+    return JSON.stringify({
+      href: location.href,
+      readyState: document.readyState,
+      msSinceNavigationStart: Math.round(performance.now()),
+      dwdsInitialized: Boolean(window.$dwdsInitialized),
+      dartMainExecuted: Boolean(window.$dartMainExecuted),
+      dartAppInstanceId: window.$dartAppInstanceId ?? null,
+      resourceCount: loaded.size,
+      scriptTagCount: scripts.length,
+      registeredModules: window.$dartLoader?.moduleIdToUrl?.size ?? null,
+      pendingScriptCount: pending.length,
+      pendingScripts: pending.slice(0, 3),
+      lastLoadedResources: resources.slice(-3).map((e) => e.name),
+      loader: loader ? {
+        attemptCount: loader.attemptCount,
+        numToLoad: loader.numToLoad,
+        numLoaded: loader.numLoaded,
+        numFailed: loader.numFailed,
+        queueLength: loader.queue?.length ?? null,
+      } : null,
+    });
+  } catch (error) {
+    return JSON.stringify({scriptError: String(error)});
+  }
+})()''';
+    final lines = <String>[];
+    try {
+      lines.add(
+        'Page: ${await _evaluate(debugConnection, pageState, awaitPromise: false, timeout: timeout)}',
+      );
+      await _evaluate(
+        debugConnection,
+        'new Promise((resolve) => setTimeout(resolve, 100))',
+        awaitPromise: true,
+        timeout: timeout,
+      );
+      lines.add('Event loop: running.');
+    } on TimeoutException {
+      lines.add(
+        lines.isEmpty
+            ? 'Page did not respond within ${timeout.inSeconds}s.'
+            : 'Event loop: a 100ms timer did not fire within ${timeout.inSeconds}s; '
+                  'JavaScript is likely paused in the debugger.',
+      );
+    }
+    return lines.join(' ');
+  }
+
+  /// Describes how the page booted, for logging after every page load.
+  ///
+  /// The DDC loader counters show whether any script load had to be retried
+  /// or failed, even when the page eventually started.
+  Future<String> describeBoot() async {
+    const timeout = Duration(seconds: 5);
+    const bootState = r'''
+(() => {
+  const loader = window.$dartLoader?.loader;
+  const navigation = performance.getEntriesByType('navigation')[0];
+  return JSON.stringify({
+    loader: loader ? {
+      attempts: loader.attemptCount,
+      loaded: loader.numLoaded,
+      failed: loader.numFailed,
+    } : null,
+    resources: performance.getEntriesByType('resource').length,
+    scriptTags: document.scripts.length,
+    domContentLoadedMs: navigation ? Math.round(navigation.domContentLoadedEventEnd) : null,
+    loadMs: navigation ? Math.round(navigation.loadEventEnd) : null,
+    msSinceNavigationStart: Math.round(performance.now()),
+  });
+})()''';
+    final String state = await _evaluate(
+      _debugConnection!,
+      bootState,
+      awaitPromise: false,
+      timeout: timeout,
+    );
+    return '$state ${await describeMemory()}';
+  }
+
+  /// Describes the number of documents, DOM nodes, and event listeners that
+  /// exist in the page's renderer process, and its JavaScript heap size.
+  ///
+  /// The number of documents grows with every reload when old documents leak.
+  Future<String> describeMemory() async {
+    const timeout = Duration(seconds: 5);
+    final WipConnection debugConnection = _debugConnection!;
+    final WipResponse counters = await debugConnection
+        .sendCommand('Memory.getDOMCounters')
+        .timeout(timeout);
+    final WipResponse heap = await debugConnection
+        .sendCommand('Runtime.getHeapUsage')
+        .timeout(timeout);
+    final Map<String, dynamic> counterValues = counters.result!;
+    final int heapUsedBytes = (heap.result!['usedSize'] as num).toInt();
+    return 'documents=${counterValues['documents']} nodes=${counterValues['nodes']} '
+        'jsEventListeners=${counterValues['jsEventListeners']} '
+        'jsHeapUsed=${heapUsedBytes ~/ (1024 * 1024)}M';
+  }
+
+  /// Fetches [url] once and then 50 times concurrently from within the page,
+  /// to find out whether the page can still load resources.
+  ///
+  /// The requests are `no-cors`, like the requests of `<script>` elements, so
+  /// that they only fail when the browser fails to load them (for example with
+  /// `net::ERR_INSUFFICIENT_RESOURCES`). If this fails with `TypeError: Failed
+  /// to fetch` while [probeFreshTab] succeeds, the state that blocks requests
+  /// is specific to this page's renderer process.
+  Future<String> probePageFetch(Uri url) {
+    return _evaluate(
+      _debugConnection!,
+      _fetchProbeScript(url),
+      awaitPromise: true,
+      timeout: const Duration(seconds: 20),
+    );
+  }
+
+  /// Opens a new blank tab, fetches [fetchUrl] once and then 50 times
+  /// concurrently from it, and closes the tab again.
+  ///
+  /// A new tab gets its own renderer process, so a success here combined with
+  /// a failure of [probePageFetch] shows that the failure is specific to the
+  /// original page's renderer. [describeProcesses] is called while the tab is
+  /// open to show the new renderer process.
+  ///
+  /// The tab stays blank on purpose. Loading the app in it would start a second
+  /// instance of the app, which would take part in the benchmark run.
+  static Future<String> probeFreshTab({
+    required int debugPort,
+    required Uri fetchUrl,
+    required String Function() describeProcesses,
+  }) async {
+    final client = io.HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    final chromeConnection = ChromeConnection('localhost', debugPort);
+    WipConnection? connection;
+    String? tabId;
+    try {
+      final io.HttpClientRequest request = await client.openUrl(
+        'PUT',
+        Uri.parse('http://localhost:$debugPort/json/new?about:blank'),
+      );
+      final io.HttpClientResponse response = await request.close().timeout(
+        const Duration(seconds: 10),
+      );
+      final newTab = json.decode(await utf8.decodeStream(response)) as Map<String, dynamic>;
+      final newTabId = newTab['id'] as String;
+      tabId = newTabId;
+      final ChromeTab? tab = await chromeConnection.getTab(
+        (ChromeTab tab) => tab.id == newTabId,
+        retryFor: const Duration(seconds: 5),
+      );
+      if (tab == null) {
+        return 'the new tab $newTabId is not listed';
+      }
+      final WipConnection tabConnection = await tab.connect();
+      connection = tabConnection;
+      const evaluateTimeout = Duration(seconds: 10);
+      var readyState = '?';
+      for (var attempt = 0; attempt < 40 && readyState != 'complete'; attempt++) {
+        readyState = await _evaluate(
+          tabConnection,
+          'document.readyState',
+          awaitPromise: false,
+          timeout: evaluateTimeout,
+        );
+        if (readyState != 'complete') {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+      }
+      final String location = await _evaluate(
+        tabConnection,
+        'location.href',
+        awaitPromise: false,
+        timeout: evaluateTimeout,
+      );
+      final String fetches = await _evaluate(
+        tabConnection,
+        _fetchProbeScript(fetchUrl),
+        awaitPromise: true,
+        timeout: const Duration(seconds: 20),
+      );
+      return 'readyState=$readyState location=$location fetch=$fetches processes: ${describeProcesses()}';
+    } on Exception catch (error) {
+      return 'failed: $error';
+    } finally {
+      await connection?.close();
+      final closingTabId = tabId;
+      if (closingTabId != null) {
+        try {
+          final io.HttpClientRequest closeRequest = await client.getUrl(
+            Uri.parse('http://localhost:$debugPort/json/close/$closingTabId'),
+          );
+          await (await closeRequest.close()).drain<void>();
+        } on Exception catch (error) {
+          print('[DIAG] Failed to close the probe tab $closingTabId: $error');
+        }
+      }
+      chromeConnection.close();
+      client.close(force: true);
+    }
+  }
+
+  static String _fetchProbeScript(Uri url) {
+    return '''
+(async () => {
+  const base = ${json.encode(url.toString())};
+  const timed = async (suffix) => {
+    const start = performance.now();
+    try {
+      const options = {cache: 'no-store', mode: 'no-cors'};
+      const response = await fetch(base + suffix, options);
+      await response.arrayBuffer();
+      return {ok: true, status: response.status, ms: Math.round(performance.now() - start)};
+    } catch (error) {
+      return {ok: false, error: String(error), ms: Math.round(performance.now() - start)};
+    }
+  };
+  const single = await timed('?diag=single');
+  const burst = await Promise.all(Array.from({length: 50}, (_, i) => timed('?diag=burst' + i)));
+  const failures = burst.filter((r) => !r.ok);
+  return JSON.stringify({
+    single,
+    burst: {
+      count: burst.length,
+      failed: failures.length,
+      firstError: failures.length ? failures[0].error : null,
+      maxMs: Math.max(...burst.map((r) => r.ms)),
+    },
+  });
+})()''';
+  }
+
   /// Disconnects from the Chrome process without killing it.
   void disconnect() {
     _isStopped = true;
     _tracingSubscription?.cancel();
+    _pageEventSubscription?.cancel();
   }
 
   /// Stops the Chrome process.
   void stop() {
     disconnect();
     _chromeProcess.kill();
+  }
+}
+
+/// Limits how many messages of each category [Chrome.logPageEvents] prints for
+/// each document.
+///
+/// A page that fails to load 1000+ scripts reports one error per script, which
+/// would bury the rest of the log. The first messages of each category are
+/// printed; the others are only counted, by category and by `net::ERR_*` code.
+class _PageLogLimiter {
+  static const int _maxPrintedPerCategory = 40;
+  static final RegExp _networkErrorPattern = RegExp(r'net::ERR_[A-Z_]+');
+
+  /// Messages seen in the current document by category.
+  final Map<String, int> _seen = <String, int>{};
+
+  /// Messages seen in the current document by `net::ERR_*` code.
+  final Map<String, int> _networkErrors = <String, int>{};
+
+  /// Counts a message of [category] and returns whether it should be printed.
+  bool allow(String category, String message) {
+    final int seen = (_seen[category] ?? 0) + 1;
+    _seen[category] = seen;
+    final String? networkError = _networkErrorPattern.firstMatch(message)?.group(0);
+    if (networkError != null) {
+      _networkErrors[networkError] = (_networkErrors[networkError] ?? 0) + 1;
+    }
+    return category == 'fatal' || category == 'navigation' || seen <= _maxPrintedPerCategory;
+  }
+
+  /// Describes the messages seen in the current document.
+  String describeCounts() {
+    final String seen = _seen.entries
+        .map((MapEntry<String, int> e) => '${e.key}=${e.value}')
+        .join(' ');
+    final String networkErrors = _networkErrors.entries
+        .map((MapEntry<String, int> e) => '${e.key}=${e.value}')
+        .join(' ');
+    return 'messages{$seen} networkErrors{$networkErrors}';
+  }
+
+  /// Describes the messages that were counted but not printed for the current
+  /// document, then starts counting for a new document.
+  ///
+  /// Returns null if all messages were printed.
+  String? takeSuppressedSummary() {
+    final bool suppressed = _seen.values.any((int seen) => seen > _maxPrintedPerCategory);
+    final summary = 'suppressed after $_maxPrintedPerCategory per category: ${describeCounts()}';
+    _seen.clear();
+    _networkErrors.clear();
+    return suppressed ? summary : null;
   }
 }
 

@@ -13,8 +13,10 @@ import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_static/shelf_static.dart';
 
 import '../framework/browser.dart';
+import '../framework/process_diagnostics.dart';
 import '../framework/task_result.dart';
 import '../framework/utils.dart';
+import '../framework/web_benchmark_diagnostics.dart';
 
 /// The port at which the local benchmark server is served.
 const int benchmarkServerPort = 9999;
@@ -71,6 +73,12 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
   io.Process? flutterRunProcess;
   String? userDataDir;
 
+  // Diagnostics for DDC runs whose page reloads stall. See
+  // WebBenchmarkDiagnostics for what they log.
+  final diagnosticsClock = Stopwatch()..start();
+  WebBenchmarkDiagnostics? diagnostics;
+  int? flutterRunExitCode;
+
   var isCleaningUp = false;
   final cleanupCompleter = Completer<void>();
 
@@ -79,6 +87,7 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       return cleanupCompleter.future;
     }
     isCleaningUp = true;
+    diagnostics?.stop();
     try {
       // 1. Close Shelf server
       try {
@@ -247,6 +256,27 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
         ) {
           print('[CHROME STDERR]: $line');
         });
+        // If 'flutter run' (and with it DWDS and the app's asset server) dies
+        // mid-run, page reloads stall without any other output.
+        unawaited(
+          flutterRunProcess!.exitCode.then((int exitCode) {
+            flutterRunExitCode = exitCode;
+            final String seconds = (diagnosticsClock.elapsedMilliseconds / 1000).toStringAsFixed(1);
+            print('[DIAG/ORCH] t=${seconds}s flutter run exited with code $exitCode.');
+          }),
+        );
+        diagnostics = WebBenchmarkDiagnostics(
+          clock: diagnosticsClock,
+          sampler: ProcessResourceSampler(
+            browserDebugPort: chromeDebugPort,
+            toolPid: flutterRunProcess!.pid,
+            serverPorts: const <int>[benchmarkServerPort, chromeDebugPort, benchmarksAppPort],
+          ),
+          getChrome: () => chrome,
+          getFlutterRunExitCode: () => flutterRunExitCode,
+          appUrl: Uri.parse('http://localhost:$benchmarksAppPort/'),
+          browserDebugPort: chromeDebugPort,
+        );
         // Wait for the app to load in DDC's Chrome instance before trying to
         // connect the debugger.
         await ddcAppReady.future;
@@ -292,9 +322,11 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
           if (request.method == 'OPTIONS') {
             return Response.ok('', headers: requestHeaders);
           }
+          diagnostics?.onRequest(request.requestedUri.path);
           if (request.requestedUri.path.endsWith('/profile-data')) {
             final profile = json.decode(requestContents) as Map<String, dynamic>;
             final benchmarkName = profile['name'] as String;
+            diagnostics?.onProfileData(benchmarkName);
             if (benchmarkName != benchmarkIterator.current) {
               if (!profileData.isCompleted) {
                 profileData.completeError(
@@ -343,6 +375,11 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
             if (benchmarkIterator.moveNext()) {
               final String nextBenchmark = benchmarkIterator.current;
               print('Launching benchmark "$nextBenchmark"');
+              await diagnostics?.onNextBenchmark(
+                chrome: chrome!,
+                totalBenchmarks: benchmarks!.length,
+                benchmarkName: nextBenchmark,
+              );
               return Response.ok(nextBenchmark, headers: requestHeaders);
             } else {
               if (!profileData.isCompleted) {
@@ -408,16 +445,27 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
 
       if (benchmarkOptions.useDdc) {
         // DDC reuses the existing Chrome connection spawned via 'flutter run'.
-        whenChromeIsReady = Chrome.connect(
-          flutterRunProcess!,
-          options,
-          onError: (String error) {
-            if (!profileData.isCompleted) {
-              profileData.completeError(Exception(error));
-            }
-          },
-          workingDirectory: cwd,
-        );
+        whenChromeIsReady =
+            Chrome.connect(
+              flutterRunProcess!,
+              options,
+              onError: (String error) {
+                if (!profileData.isCompleted) {
+                  profileData.completeError(Exception(error));
+                }
+              },
+              workingDirectory: cwd,
+            ).then((Chrome connectedChrome) async {
+              try {
+                await connectedChrome
+                    .logPageEvents(clock: diagnosticsClock)
+                    .timeout(const Duration(seconds: 30));
+              } on Object catch (error) {
+                print('[DIAG] Failed to enable page event logging: $error');
+              }
+              diagnostics?.start();
+              return connectedChrome;
+            });
       } else {
         whenChromeIsReady = Chrome.launch(
           options,

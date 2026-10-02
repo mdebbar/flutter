@@ -164,13 +164,20 @@ class WebDevFS implements DevFS {
     // [firstConnection] completing; thus test the boolean to determine if
     // the current connection is the first.
     var foundFirstConnection = false;
+    var appConnectionCount = 0;
     _connectedApps = dwds.connectedApps.listen(
       (AppConnection appConnection) async {
+        final int connectionNumber = ++appConnectionCount;
+        logger.printStatus('[DIAG] DWDS received app connection #$connectionNumber.');
         try {
           final DebugConnection debugConnection = useDebugExtension
               ? await (_cachedExtensionFuture ??= dwds.extensionDebugConnections.stream.first)
               : await dwds.debugConnection(appConnection);
+          logger.printStatus(
+            '[DIAG] DWDS created the debug connection of app connection #$connectionNumber.',
+          );
           if (foundFirstConnection) {
+            unawaited(_logWhenMainStarts(appConnection, connectionNumber));
             appConnection.runMain();
           } else {
             foundFirstConnection = true;
@@ -181,6 +188,9 @@ class WebDevFS implements DevFS {
             firstConnection.complete(ConnectionResult(appConnection, debugConnection, vmService));
           }
         } on Exception catch (error, stackTrace) {
+          logger.printError(
+            '[DIAG] Failed to connect app connection #$connectionNumber: $error\n$stackTrace',
+          );
           if (!firstConnection.isCompleted) {
             firstConnection.completeError(error, stackTrace);
           }
@@ -194,6 +204,23 @@ class WebDevFS implements DevFS {
       },
     );
     return firstConnection.future;
+  }
+
+  /// Logs whether DWDS tells the app of [appConnection] to run `main`.
+  ///
+  /// [AppConnection.runMain] only asks DWDS to do so. DWDS sends the request
+  /// once it is ready to, which it may never be after a page reload.
+  Future<void> _logWhenMainStarts(AppConnection appConnection, int connectionNumber) async {
+    const timeout = Duration(seconds: 20);
+    try {
+      await appConnection.onStart.timeout(timeout);
+      logger.printStatus('[DIAG] DWDS told app connection #$connectionNumber to run main.');
+    } on TimeoutException {
+      logger.printStatus(
+        '[DIAG] DWDS did not tell app connection #$connectionNumber to run main '
+        'within ${timeout.inSeconds}s.',
+      );
+    }
   }
 
   @override

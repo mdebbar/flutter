@@ -272,17 +272,48 @@ class Chrome {
 
   StreamSubscription<WipEvent>? _pageEventSubscription;
   var _probedRefusal = false;
+  // The page's requests as DevTools reports them: requests that neither
+  // finished nor failed yet (kept across navigations, to expose leftovers of
+  // earlier documents), and, since the last main frame navigation, the ones that
+  // reached the network stack (`requestWillBeSentExtraInfo`) and the ones that
+  // failed with ERR_INSUFFICIENT_RESOURCES.
+  final _unfinishedRequests = <String, String>{};
+  final _requestsSentToServer = <String>{};
+  final _refusedRequests = <String>{};
+  var _requestsSinceNavigation = 0;
 
   /// Logs page navigations, load events, uncaught JS exceptions, and renderer
   /// crashes, so that a page load that never completes can be diagnosed from
   /// the logs.
   ///
-  /// This enables the Page, Runtime, and Inspector DevTools domains, which adds
-  /// instrumentation overhead to the page. Only use it for uncalibrated runs.
+  /// This enables the Page, Runtime, Log, Inspector, and Network DevTools
+  /// domains, which adds instrumentation overhead to the page. Only use it for
+  /// uncalibrated runs.
   Future<void> logPageEvents() async {
     final WipConnection debugConnection = _debugConnection!;
     _pageEventSubscription = debugConnection.onNotification.listen((WipEvent event) {
       final Map<String, dynamic> params = event.params ?? const <String, dynamic>{};
+      final requestId = params['requestId'] as String?;
+      switch (event.method) {
+        case 'Network.requestWillBeSent':
+          _requestsSinceNavigation++;
+          _unfinishedRequests[requestId!] =
+              '${params['type']} ${(params['request'] as Map<String, dynamic>)['url']}';
+        case 'Network.requestWillBeSentExtraInfo':
+          _requestsSentToServer.add(requestId!);
+        case 'Network.loadingFinished':
+          _unfinishedRequests.remove(requestId);
+        case 'Network.loadingFailed':
+          _unfinishedRequests.remove(requestId);
+          if ('${params['errorText']}'.contains('ERR_INSUFFICIENT_RESOURCES')) {
+            _refusedRequests.add(requestId!);
+          }
+        case 'Page.frameNavigated'
+            when (params['frame'] as Map<String, dynamic>)['parentId'] == null:
+          _requestsSinceNavigation = 0;
+          _requestsSentToServer.clear();
+          _refusedRequests.clear();
+      }
       final String? message = switch (event.method) {
         'Page.frameNavigated' => 'navigated to ${(params['frame'] as Map<String, dynamic>)['url']}',
         'Page.loadEventFired' => 'load event fired',
@@ -306,7 +337,8 @@ class Chrome {
         unawaited(
           _cdp('Memory.getDOMCounters').then((String counters) async {
             print(
-              '[CHROME PAGE] after load: counters=$counters heap=${await _cdp('Runtime.getHeapUsage')}',
+              '[CHROME PAGE] after load: counters=$counters heap=${await _cdp('Runtime.getHeapUsage')} '
+              '${_describeNetwork()}',
             );
           }),
         );
@@ -315,6 +347,11 @@ class Chrome {
     for (final domain in <String>['Page', 'Runtime', 'Log', 'Inspector']) {
       await debugConnection.sendCommand('$domain.enable');
     }
+    // Only the request lifecycle events are needed, not buffered response bodies.
+    await debugConnection.sendCommand('Network.enable', <String, dynamic>{
+      'maxTotalBufferSize': 1,
+      'maxResourceBufferSize': 1,
+    });
     // DDC loads 600+ library scripts per reload, which overflows the default
     // 250-entry Resource Timing buffer.
     await debugConnection.sendCommand('Page.addScriptToEvaluateOnNewDocument', <String, dynamic>{
@@ -418,13 +455,13 @@ class Chrome {
     }
   }
 
-  /// Tests whether `net::ERR_INSUFFICIENT_RESOURCES` page load failures are
-  /// caused by discarded documents not being garbage collected between reloads.
+  /// Logs how a `net::ERR_INSUFFICIENT_RESOURCES` page load failure looks from
+  /// the outside, while the page is still refusing requests.
   ///
-  /// Meant to run while the page is still refusing requests (the refusal heals
-  /// on its own within minutes): logs renderer counters and whether a new
-  /// request succeeds, twice without intervention, then after a forced garbage
-  /// collection, then again 10s and 30s later.
+  /// The refusal heals within seconds without a garbage collection, so this
+  /// polls a new request every 100ms to time it, and logs the shape of the
+  /// failing load (concurrency, from Resource Timing) and the requests that
+  /// DevTools considers unfinished or refused.
   Future<void> probeRenderer() async {
     const fetchProbe = <String, dynamic>{
       'expression':
@@ -433,25 +470,65 @@ class Chrome {
       'awaitPromise': true,
       'returnByValue': true,
     };
-    Future<void> logState(String phase) async {
-      print(
-        '[CHROME PAGE] probe $phase: counters=${await _cdp('Memory.getDOMCounters')} '
-        'heap=${await _cdp('Runtime.getHeapUsage')} ${await _cdp('Runtime.evaluate', fetchProbe)}',
-      );
-    }
+    const loadProfile = <String, dynamic>{
+      'expression': '''
+(() => {
+  const entries = performance.getEntriesByType('resource');
+  const edges = entries.flatMap((e) => [[e.startTime, 1], [e.responseEnd, -1]]);
+  edges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let inFlight = 0;
+  let peak = 0;
+  for (const [, delta] of edges) {
+    inFlight += delta;
+    peak = Math.max(peak, inFlight);
+  }
+  return JSON.stringify({
+    resources: entries.length,
+    peakInFlight: peak,
+    firstStartMs: Math.round(Math.min(...entries.map((e) => e.startTime))),
+    lastEndMs: Math.round(Math.max(...entries.map((e) => e.responseEnd))),
+    nowMs: Math.round(performance.now()),
+  });
+})()''',
+      'returnByValue': true,
+    };
 
-    await Future<void>.delayed(const Duration(seconds: 2));
-    await logState('+2s, before GC');
-    await Future<void>.delayed(const Duration(seconds: 2));
-    await logState('+4s, before GC');
     print(
-      '[CHROME PAGE] HeapProfiler.collectGarbage: ${await _cdp('HeapProfiler.collectGarbage')}',
+      '[CHROME PAGE] probe at first refusal: load=${await _cdp('Runtime.evaluate', loadProfile)} '
+      '${_describeNetwork()}',
     );
-    await logState('after GC');
-    await Future<void>.delayed(const Duration(seconds: 10));
-    await logState('10s after GC');
-    await Future<void>.delayed(const Duration(seconds: 20));
-    await logState('30s after GC');
+    final healing = Stopwatch()..start();
+    String fetchResult = await _cdp('Runtime.evaluate', fetchProbe);
+    while (!fetchResult.contains('status') && healing.elapsed < const Duration(seconds: 10)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      fetchResult = await _cdp('Runtime.evaluate', fetchProbe);
+    }
+    print(
+      '[CHROME PAGE] probe healed after ${healing.elapsedMilliseconds}ms: $fetchResult '
+      '${_describeNetwork()}',
+    );
+    await Future<void>.delayed(const Duration(seconds: 5));
+    print(
+      '[CHROME PAGE] probe 5s after healing: counters=${await _cdp('Memory.getDOMCounters')} '
+      '${await _cdp('Runtime.evaluate', fetchProbe)} ${_describeNetwork()}',
+    );
+  }
+
+  /// Describes the page's requests as DevTools saw them since the last
+  /// navigation of the main frame (and the ones still unfinished before it).
+  ///
+  /// A refused request that never reached the network stack (no
+  /// `requestWillBeSentExtraInfo`) was refused when its loader was created, e.g.
+  /// by a per-process cap on live loaders. One that did reach it was refused
+  /// after its response arrived, e.g. because a data pipe could not be created.
+  String _describeNetwork() {
+    final types = <String, int>{};
+    for (final String request in _unfinishedRequests.values) {
+      types.update(request.split(' ').first, (int count) => count + 1, ifAbsent: () => 1);
+    }
+    return 'net: requests=$_requestsSinceNavigation unfinished=${_unfinishedRequests.length} $types '
+        'oldest=${_unfinishedRequests.values.take(3).toList()} refused=${_refusedRequests.length} '
+        'refusedAfterSend=${_refusedRequests.where(_requestsSentToServer.contains).length}';
   }
 
   /// Disconnects from the Chrome process without killing it.

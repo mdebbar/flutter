@@ -9,6 +9,7 @@
 import argparse
 import os
 import string
+import sys
 
 
 def main():
@@ -53,13 +54,15 @@ $command $args
     if os.path.exists('deflake_vpython_diag.txt'):
       with open('deflake_vpython_diag.txt') as df:
         print(df.read().strip())
-    vproot = os.environ.get('VPYTHON_VIRTUALENV_ROOT') or os.path.expanduser('~/.vpython-root')
-    store = os.path.join(vproot, 'store')
-    if os.path.isdir(store):
-      matches = [e for e in os.listdir(store) if 'eeaaiqs' in e or 'wheels' in e]
-      print('[DEFLAKE_DIAG] in_ninja store=%s matches=%s' % (store, matches))
-    else:
-      print('[DEFLAKE_DIAG] in_ninja store_missing=%s' % store)
+    print('[DEFLAKE_DIAG] in_ninja sys_prefix=%s exe=%s' % (sys.prefix, sys.executable))
+    cur = sys.prefix
+    for _ in range(4):
+      cur = os.path.dirname(cur)
+      if os.path.isdir(cur):
+        entries = os.listdir(cur)
+        matches = [e for e in entries if 'eeaaiqs' in e or 'wheels' in e or 'venv' in e]
+        if matches:
+          print('[DEFLAKE_DIAG] in_ninja dir=%s matches=%s' % (cur, matches))
 
 
 if __name__ == '__main__':

@@ -277,6 +277,7 @@ class Chrome {
 
   StreamSubscription<WipEvent>? _pageEventSubscription;
   var _probedRefusal = false;
+  var _loadCount = 0;
   // The page's requests as DevTools reports them: requests that neither
   // finished nor failed yet (kept across navigations, to expose leftovers of
   // earlier documents), and, since the last main frame navigation, the ones that
@@ -349,6 +350,8 @@ class Chrome {
         unawaited(probeRenderer());
       }
       if (event.method == 'Page.loadEventFired') {
+        _loadCount++;
+        print('[ORCHESTRATOR] shm: after load #$_loadCount ${describeShm(detailed: false)}');
         unawaited(
           _cdp('Memory.getDOMCounters').then((String counters) async {
             print(
@@ -512,6 +515,7 @@ class Chrome {
       '[CHROME PAGE] probe at first refusal: load=${await _cdp('Runtime.evaluate', loadProfile)} '
       '${_describeNetwork()} system: ${_describeSystem()}',
     );
+    print('[ORCHESTRATOR] shm: at first refusal ${describeShm(detailed: true)}');
     final healing = Stopwatch()..start();
     String fetchResult = await _cdp('Runtime.evaluate', fetchProbe);
     while (!fetchResult.contains('status') && healing.elapsed < const Duration(seconds: 10)) {
@@ -522,6 +526,7 @@ class Chrome {
       '[CHROME PAGE] probe healed after ${healing.elapsedMilliseconds}ms: $fetchResult '
       '${_describeNetwork()} system: ${_describeSystem()}',
     );
+    print('[ORCHESTRATOR] shm: after healing ${describeShm(detailed: true)}');
     await Future<void>.delayed(const Duration(seconds: 5));
     print(
       '[CHROME PAGE] probe 5s after healing: counters=${await _cdp('Memory.getDOMCounters')} '
@@ -581,6 +586,28 @@ class Chrome {
     disconnect();
     _chromeProcess.kill();
   }
+}
+
+/// One-line `/dev/shm` snapshot: `df` usage, visible file count and bytes (`du`),
+/// and, when [detailed], the largest visible entries (numeric uid, size, mtime,
+/// name), name patterns (digits collapsed to `N`), and bytes per process holding
+/// files open on it (`lsof`, if installed), which also covers unlinked files
+/// that `ls`/`du` cannot see (Chrome unlinks its shm files right after creation).
+String describeShm({required bool detailed}) {
+  const brief =
+      r'df -k /dev/shm | tail -n 1; '
+      r'echo "visible: files=$(ls -A /dev/shm | wc -l) du=$(du -sk /dev/shm 2>/dev/null | cut -f1)KB"';
+  const full =
+      r'echo largest:; ls -lAn --time-style=+%H:%M:%S /dev/shm | sort -k5 -n -r | head -n 10 | '
+      r'awk "{print \$3, \$5, \$6, \$7}"; '
+      r'echo patterns:; ls -A /dev/shm | sed -E "s/[0-9]+/N/g" | sort | uniq -c | sort -rn | head -n 8; '
+      r'echo "open (bytes count command pid user):"; '
+      r'if command -v lsof >/dev/null; then lsof -nP /dev/shm 2>/dev/null | '
+      r'awk "NR>1 {k=\$1\" \"\$2\" \"\$3; b[k]+=\$7; n[k]++} END {for (k in b) print b[k], n[k], k}" | '
+      r'sort -rn | head -n 10; else echo lsof-missing; fi';
+  final script = detailed ? '$brief; $full' : brief;
+  final io.ProcessResult result = io.Process.runSync('sh', <String>['-c', script]);
+  return '${result.stdout}${result.stderr}'.trim().replaceAll(RegExp(r'\s*\n\s*'), ' | ');
 }
 
 String _findSystemChromeExecutable() {

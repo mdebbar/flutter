@@ -147,6 +147,9 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
             return 0;
           },
         );
+        // Whether this task's Chrome gave its /dev/shm share back.
+        await Future<void>.delayed(const Duration(seconds: 2));
+        print('[ORCHESTRATOR] shm: after flutter run exit ${describeShm(detailed: true)}');
       }
 
       // 4. Clean up temporary directory
@@ -189,6 +192,15 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       await flutter('clean');
 
       server = await io.HttpServer.bind('localhost', benchmarkServerPort);
+
+      // /dev/shm before this task's Chrome exists: anything in it now came from
+      // earlier tasks on this bot.
+      final Map<String, String> env = io.Platform.environment;
+      print(
+        '[ORCHESTRATOR] shm: at task start bot=${env['SWARMING_BOT_ID']} '
+        'task=${env['SWARMING_TASK_ID']} host=${io.Platform.localHostname} '
+        '${describeShm(detailed: true)}',
+      );
 
       // DDC runs the benchmarks suite with 'flutter run', attaching to its
       // Chrome instance instead of starting a new one.

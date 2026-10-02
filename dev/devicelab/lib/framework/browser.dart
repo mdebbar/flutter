@@ -273,6 +273,10 @@ class Chrome {
   StreamSubscription<WipEvent>? _pageEventSubscription;
   final _PageLogLimiter _pageLogLimiter = _PageLogLimiter();
 
+  /// The id of the page's main frame, to tell its events from those of the
+  /// frames inside the page. Null until it is known.
+  String? _mainFrameId;
+
   /// Logs page navigations, load events, console output, uncaught JS
   /// exceptions, resource loading errors (such as `net::ERR_*`), and renderer
   /// crashes, so that a page load that never completes can be diagnosed from
@@ -295,6 +299,14 @@ class Chrome {
     for (final domain in <String>['Page', 'Runtime', 'Log', 'Inspector']) {
       await debugConnection.sendCommand('$domain.enable');
     }
+    try {
+      final WipResponse response = await debugConnection.sendCommand('Page.getFrameTree');
+      final frameTree = response.result!['frameTree'] as Map<String, dynamic>;
+      _mainFrameId = (frameTree['frame'] as Map<String, dynamic>)['id'] as String;
+    } on Object catch (error) {
+      // Events of all frames are logged then.
+      print('[CHROME PAGE] Failed to find the main frame: $error');
+    }
     // DDC loads 1000+ library scripts per reload, which overflows the default
     // 250-entry Resource Timing buffer.
     await debugConnection.sendCommand('Page.addScriptToEvaluateOnNewDocument', <String, dynamic>{
@@ -304,22 +316,27 @@ class Chrome {
 
   void _logPageEvent(WipEvent event, Stopwatch clock) {
     final Map<String, dynamic> params = event.params ?? const <String, dynamic>{};
+    final String? mainFrameId = _mainFrameId;
+    final frameId = params['frameId'] as String?;
+    // Frames inside the page (e.g. platform views) fire hundreds of events
+    // that would drown out those of the page.
+    final bool isPageFrame = mainFrameId == null || frameId == null || frameId == mainFrameId;
     final (String, String)? entry = switch (event.method) {
       // Frames that have a parent are not the page itself.
       'Page.frameNavigated' when (params['frame'] as Map<String, dynamic>)['parentId'] == null => (
         'navigation',
         'navigated to ${(params['frame'] as Map<String, dynamic>)['url']}',
       ),
-      'Page.frameRequestedNavigation' => (
+      'Page.frameRequestedNavigation' when isPageFrame => (
         'navigation',
         'navigation requested by the page (${params['reason']}) to ${params['url']}',
       ),
-      'Page.frameStartedNavigating' => (
+      'Page.frameStartedNavigating' when isPageFrame => (
         'navigation',
         'navigation started (${params['navigationType']}) to ${params['url']}',
       ),
-      'Page.frameStartedLoading' => ('navigation', 'frame started loading'),
-      'Page.frameStoppedLoading' => ('navigation', 'frame stopped loading'),
+      'Page.frameStartedLoading' when isPageFrame => ('navigation', 'frame started loading'),
+      'Page.frameStoppedLoading' when isPageFrame => ('navigation', 'frame stopped loading'),
       'Page.domContentEventFired' => ('navigation', 'DOMContentLoaded event fired'),
       'Page.loadEventFired' => ('navigation', 'load event fired'),
       'Runtime.consoleAPICalled' => (

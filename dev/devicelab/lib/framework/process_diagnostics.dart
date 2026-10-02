@@ -52,7 +52,7 @@ class ProcessResourceSampler {
       final String processes = reports
           .map(
             (_ProcessReport r) =>
-                '${r.role}/${r.pid}:${r.fdCount}fd/${r.rssKiB ~/ 1024}M/${r.threads}t',
+                '${r.role}/${r.pid}:${r.fdCount}/${r.fdLimit}fd/${r.rssKiB ~/ 1024}M/${r.threads}t/${r.vmas}vma',
           )
           .join(' ');
       return 'procs[$processes] sys[${_systemSummary()}] tcp[${_tcpSummary()}]';
@@ -118,7 +118,7 @@ class ProcessResourceSampler {
                 .join(' ');
         lines.add(
           '${r.role}/${r.pid} state=${r.state} fds=${r.fdCount}/${r.fdLimit} [$kinds] '
-          'threads=${r.threads} rss=${r.rssKiB ~/ 1024}M cpu=$cpu',
+          'threads=${r.threads} vmas=${r.vmas} rss=${r.rssKiB ~/ 1024}M vsz=${r.vsizeKiB ~/ 1024}M cpu=$cpu',
         );
       }
       lines
@@ -162,10 +162,12 @@ class ProcessResourceSampler {
           state: stat.state,
           threads: stat.threads,
           rssKiB: stat.rssKiB,
+          vsizeKiB: stat.vsizeKiB,
           cpuTicks: stat.cpuTicks,
           fdCount: fds.count,
           fdKinds: fds.kinds,
           fdLimit: _readFdLimit(stat.pid),
+          vmas: _countVmas(stat.pid),
         ),
       );
     }
@@ -291,6 +293,23 @@ class ProcessResourceSampler {
     }
   }
 
+  /// Counts the memory mappings (VMAs) of a process, which the kernel limits to
+  /// `vm.max_map_count` per process. Returns -1 if they cannot be read.
+  static int _countVmas(int pid) {
+    try {
+      var count = 0;
+      for (final int byte in io.File('/proc/$pid/maps').readAsBytesSync()) {
+        // One mapping per line.
+        if (byte == 0x0A) {
+          count++;
+        }
+      }
+      return count;
+    } on io.FileSystemException {
+      return -1;
+    }
+  }
+
   static _FdInfo _readFds(int pid) {
     final kinds = <String, int>{};
     var count = 0;
@@ -350,6 +369,7 @@ class ProcessResourceSampler {
     if (fileNr != null && fileNr.length >= 3) {
       parts.add('system-fds=${fileNr[0]}/${fileNr[2]}');
     }
+    parts.add('maxMaps=${_readText('/proc/sys/vm/max_map_count')?.trim() ?? '?'}');
     final List<String>? load = _readText('/proc/loadavg')?.trim().split(' ');
     if (load != null && load.length >= 3) {
       parts.add('load=${load.take(3).join(',')}');
@@ -531,6 +551,7 @@ class _ProcessStat {
     required this.cpuTicks,
     required this.threads,
     required this.rssKiB,
+    required this.vsizeKiB,
   });
 
   /// Parses the contents of `/proc/<pid>/stat`.
@@ -555,11 +576,13 @@ class _ProcessStat {
     final int? userTicks = int.tryParse(fields[11]);
     final int? systemTicks = int.tryParse(fields[12]);
     final int? threads = int.tryParse(fields[17]);
+    final int? vsizeBytes = int.tryParse(fields[20]);
     final int? rssPages = int.tryParse(fields[21]);
     if (parentPid == null ||
         userTicks == null ||
         systemTicks == null ||
         threads == null ||
+        vsizeBytes == null ||
         rssPages == null) {
       return null;
     }
@@ -572,6 +595,7 @@ class _ProcessStat {
       threads: threads,
       // Assumes 4 KiB pages.
       rssKiB: rssPages * 4,
+      vsizeKiB: vsizeBytes ~/ 1024,
     );
   }
 
@@ -582,6 +606,7 @@ class _ProcessStat {
   final int cpuTicks;
   final int threads;
   final int rssKiB;
+  final int vsizeKiB;
 }
 
 class _ProcessReport {
@@ -591,10 +616,12 @@ class _ProcessReport {
     required this.state,
     required this.threads,
     required this.rssKiB,
+    required this.vsizeKiB,
     required this.cpuTicks,
     required this.fdCount,
     required this.fdKinds,
     required this.fdLimit,
+    required this.vmas,
   });
 
   final int pid;
@@ -602,6 +629,7 @@ class _ProcessReport {
   final String state;
   final int threads;
   final int rssKiB;
+  final int vsizeKiB;
   final int cpuTicks;
 
   /// The number of open file descriptors, or -1 if they cannot be listed.
@@ -612,4 +640,7 @@ class _ProcessReport {
 
   /// The soft limit of open file descriptors.
   final String fdLimit;
+
+  /// The number of memory mappings, or -1 if they cannot be read.
+  final int vmas;
 }

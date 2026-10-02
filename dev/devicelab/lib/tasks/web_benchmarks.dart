@@ -368,6 +368,11 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
             }
             if (benchmarkIterator.moveNext()) {
               final String nextBenchmark = benchmarkIterator.current;
+              // The page reloads as soon as it receives the next benchmark
+              // name. Collect the previous benchmarks' detached documents first,
+              // before their /dev/shm segments accumulate (see
+              // Chrome.collectGarbage).
+              await chrome!.collectGarbage();
               print('Launching benchmark "$nextBenchmark"');
               return Response.ok(nextBenchmark, headers: requestHeaders);
             } else {

@@ -275,6 +275,45 @@ class Chrome {
     await _debugConnection?.page.reload(ignoreCache: ignoreCache);
   }
 
+  var _describedShmBeforeGc = false;
+
+  /// Forces a full garbage collection (V8 + Oilpan) in the page.
+  ///
+  /// Every benchmark page leaves ~2.5 GB of unlinked `/dev/shm` segments that
+  /// are reachable only from its detached document once the harness reloads to
+  /// the next benchmark. Chrome releases them only on a major GC, whose cadence
+  /// follows JS heap growth (~130 MB per detached document), not shared-memory
+  /// usage, so 5-6 uncollected documents fill the 15 GB tmpfs (50% of RAM on
+  /// the Linux bots) and the next page's script requests fail with
+  /// `net::ERR_INSUFFICIENT_RESOURCES`. Collecting before each reload keeps at
+  /// most one detached document alive (`/dev/shm` peaks at ~35%).
+  Future<void> collectGarbage() async {
+    final WipConnection? debugConnection = _debugConnection;
+    if (debugConnection == null) {
+      return;
+    }
+    final String before = describeShm(detailed: false);
+    // Once per run, while the garbage is still alive, name the holder process
+    // type and the segment size quantum.
+    final bool detailed = !_describedShmBeforeGc && !before.contains(' 0% /dev/shm');
+    if (detailed) {
+      _describedShmBeforeGc = true;
+      print('[ORCHESTRATOR] shm: before GC ${describeShm(detailed: true)}');
+    }
+    try {
+      await debugConnection
+          .sendCommand('HeapProfiler.collectGarbage')
+          .timeout(const Duration(seconds: 30));
+    } on Object catch (error) {
+      print('[ORCHESTRATOR] HeapProfiler.collectGarbage failed: $error');
+    }
+    print(
+      '[ORCHESTRATOR] shm: before/after GC ${_shmUse(before)} -> ${_shmUse(describeShm(detailed: false))}',
+    );
+  }
+
+  static String _shmUse(String shm) => RegExp(r'\d+% /dev/shm').firstMatch(shm)?.group(0) ?? shm;
+
   StreamSubscription<WipEvent>? _pageEventSubscription;
   var _probedRefusal = false;
   var _loadCount = 0;

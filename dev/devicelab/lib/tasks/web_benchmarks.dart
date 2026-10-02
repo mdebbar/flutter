@@ -456,7 +456,6 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
       // stalled page reload can be diagnosed from the CI logs. This only logs;
       // the recipe's test timeout ends a stalled run.
       const stallThreshold = Duration(minutes: 5);
-      var probedRenderer = false;
       final stallWatchdog = Timer.periodic(const Duration(minutes: 1), (_) async {
         final Duration idle = DateTime.now().difference(lastRequestTime);
         if (idle < stallThreshold) {
@@ -467,10 +466,6 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
         );
         try {
           print('[ORCHESTRATOR] ${await chrome?.describeState() ?? 'Chrome is not connected.'}');
-          if (!probedRenderer) {
-            probedRenderer = true;
-            print('[ORCHESTRATOR] ${await chrome?.probeRenderer() ?? 'Chrome is not connected.'}');
-          }
         } on Exception catch (error) {
           print('[ORCHESTRATOR] Failed to describe page state: $error');
         }

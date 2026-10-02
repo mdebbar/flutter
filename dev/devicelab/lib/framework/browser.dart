@@ -271,6 +271,7 @@ class Chrome {
   }
 
   StreamSubscription<WipEvent>? _pageEventSubscription;
+  var _probedRefusal = false;
 
   /// Logs page navigations, load events, uncaught JS exceptions, and renderer
   /// crashes, so that a page load that never completes can be diagnosed from
@@ -296,6 +297,10 @@ class Chrome {
       };
       if (message != null) {
         print('[CHROME PAGE] $message');
+      }
+      if (!_probedRefusal && (message?.contains('ERR_INSUFFICIENT_RESOURCES') ?? false)) {
+        _probedRefusal = true;
+        unawaited(probeRenderer());
       }
       if (event.method == 'Page.loadEventFired') {
         unawaited(
@@ -414,10 +419,13 @@ class Chrome {
   }
 
   /// Tests whether `net::ERR_INSUFFICIENT_RESOURCES` page load failures are
-  /// caused by discarded documents not being garbage collected between reloads:
-  /// logs renderer counters and whether a new request succeeds, before and
-  /// after a forced garbage collection.
-  Future<String> probeRenderer() async {
+  /// caused by discarded documents not being garbage collected between reloads.
+  ///
+  /// Meant to run while the page is still refusing requests (the refusal heals
+  /// on its own within minutes): logs renderer counters and whether a new
+  /// request succeeds, twice without intervention, then after a forced garbage
+  /// collection, then again 10s and 30s later.
+  Future<void> probeRenderer() async {
     const fetchProbe = <String, dynamic>{
       'expression':
           "fetch('/favicon.ico?probe=' + Date.now(), {cache: 'no-store'}) "
@@ -425,17 +433,25 @@ class Chrome {
       'awaitPromise': true,
       'returnByValue': true,
     };
-    final lines = <String>[];
-    for (final phase in <String>['before GC', 'after GC']) {
-      if (phase == 'after GC') {
-        lines.add('HeapProfiler.collectGarbage: ${await _cdp('HeapProfiler.collectGarbage')}');
-      }
-      lines.add(
-        '$phase: counters=${await _cdp('Memory.getDOMCounters')} '
+    Future<void> logState(String phase) async {
+      print(
+        '[CHROME PAGE] probe $phase: counters=${await _cdp('Memory.getDOMCounters')} '
         'heap=${await _cdp('Runtime.getHeapUsage')} ${await _cdp('Runtime.evaluate', fetchProbe)}',
       );
     }
-    return lines.join('\n');
+
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await logState('+2s, before GC');
+    await Future<void>.delayed(const Duration(seconds: 2));
+    await logState('+4s, before GC');
+    print(
+      '[CHROME PAGE] HeapProfiler.collectGarbage: ${await _cdp('HeapProfiler.collectGarbage')}',
+    );
+    await logState('after GC');
+    await Future<void>.delayed(const Duration(seconds: 10));
+    await logState('10s after GC');
+    await Future<void>.delayed(const Duration(seconds: 20));
+    await logState('30s after GC');
   }
 
   /// Disconnects from the Chrome process without killing it.

@@ -537,11 +537,13 @@ class Chrome {
 
   /// Snapshot of the limits and usage that could make Chrome fail to allocate
   /// a file descriptor, shared memory, or memory: the soft and hard `ulimit -n`,
-  /// `/dev/shm` usage (`df -k`), and memory (`free -m`).
+  /// `/dev/shm` and temp directory usage (`df -k`), and memory (`free -m`).
   String _describeSystem() {
     final io.ProcessResult result = io.Process.runSync('sh', <String>[
       '-c',
-      r'echo nofile=$(ulimit -n)/$(ulimit -Hn); df -k /dev/shm | tail -n 1; free -m | sed -n 2p',
+      r'echo nofile=$(ulimit -n)/$(ulimit -Hn); df -k /dev/shm "$1" | tail -n 2; free -m | sed -n 2p',
+      'sh',
+      io.Directory.systemTemp.path,
     ]);
     return '${result.stdout}${result.stderr}'.trim().replaceAll(RegExp(r'\s*\n\s*'), ' | ');
   }

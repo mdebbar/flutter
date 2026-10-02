@@ -226,6 +226,12 @@ Future<TaskResult> runWebBenchmark(WebBenchmarkOptions benchmarkOptions) async {
             '--web-browser-flag=--no-sandbox',
             '--web-browser-flag=--password-store=basic',
             if (io.Platform.isMacOS) '--web-browser-flag=--use-mock-keychain',
+            // Chrome backs shared memory (e.g. the data pipes that deliver
+            // response bodies) with files in /dev/shm, a tmpfs capped at half
+            // of the RAM. It was 100% full (0 KB available) when loading the
+            // ~1200 DDC scripts failed with net::ERR_INSUFFICIENT_RESOURCES.
+            // Use the temp directory instead.
+            if (io.Platform.isLinux) '--web-browser-flag=--disable-dev-shm-usage',
             '--dart-define=FLUTTER_WEB_ENABLE_PROFILING=true',
             '--dart-define=BENCHMARK_SERVER_PORT=${server!.port}',
             if (!benchmarkOptions.withHotReload) '--no-web-experimental-hot-reload',

@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:async';
+import 'dart:io' as io;
+
 import 'package:dap_adapters/dap_adapters.dart';
 import 'package:file/file.dart';
 import 'package:flutter_tools/src/cache.dart';
@@ -36,11 +39,56 @@ void main() {
 
   void standardTests({List<String>? toolArgs}) {
     test('can run in debug mode', () async {
-      // Collect output and test events while running the script.
-      final TestEvents outputEvents = await client.collectTestOutput(
-        launch: () =>
-            client.launch(program: project.testFilePath, cwd: project.dir.path, toolArgs: toolArgs),
+      // DEFLAKE(#192470): record phase markers; on hang dump traffic + processes and fail fast.
+      final stopwatch = Stopwatch()..start();
+      final phases = <String>[];
+      void mark(String phase) => phases.add('[${stopwatch.elapsedMilliseconds}ms] $phase');
+      final subscriptions = <StreamSubscription<Object?>>[
+        for (final name in <String>['initialized', 'process', 'dart.debuggerUris', 'exited'])
+          client.events(name).listen((_) => mark('event:$name')),
+        client.testNotificationEvents.listen((Map<String, Object?> e) {
+          if (const <String>{'start', 'allSuites', 'done'}.contains(e['type'])) {
+            mark('testNotification:${e['type']}');
+          }
+        }),
+      ];
+      final Future<TestEvents> collect = client.collectTestOutput(
+        launch: () async {
+          mark('launch sent');
+          final Response response = await client.launch(
+            program: project.testFilePath,
+            cwd: project.dir.path,
+            toolArgs: toolArgs,
+            sendLogsToClient: true,
+          );
+          mark('launch responded success=${response.success}');
+          return response;
+        },
       );
+      final TestEvents outputEvents = await collect.timeout(
+        const Duration(minutes: 3),
+        onTimeout: () {
+          final io.ProcessResult ps = io.Process.runSync('ps', <String>[
+            '-axo',
+            'pid,ppid,stat,etime,command',
+          ]);
+          final String procs = (ps.stdout as String)
+              .split('\n')
+              .where((String l) => l.contains('flutter') || l.contains('dart'))
+              .map((String l) => l.length > 300 ? l.substring(0, 300) : l)
+              .join('\n');
+          fail(
+            'DEFLAKE(#192470) HANG after ${stopwatch.elapsed} (no terminated event)\n'
+            '=== phases ===\n${phases.join('\n')}\n'
+            '=== processes ===\n$procs\n'
+            '=== recent DAP log ===\n${dap.recentLogs}\n=== end ===',
+          );
+        },
+      );
+      mark('terminated');
+      for (final s in subscriptions) {
+        await s.cancel();
+      }
 
       // Check the printed output shows that the run finished, and it's exit
       // code (which is 1 due to the failing test).

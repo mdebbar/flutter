@@ -119,10 +119,14 @@ class SimpleFlutterRunner {
 
 /// A helper class containing the DAP server/client for DAP integration tests.
 class DapTestSession {
-  DapTestSession._(this.server, this.client);
+  DapTestSession._(this.server, this.client, this._recentLogs);
 
   DapTestServer server;
   DapTestClient client;
+
+  // DEFLAKE(#192470): ring buffer of the most recent DAP/server log lines.
+  final List<String> _recentLogs;
+  String get recentLogs => _recentLogs.join('\n');
 
   Future<void> tearDown() async {
     await client.stop();
@@ -130,15 +134,25 @@ class DapTestSession {
   }
 
   static Future<DapTestSession> setUp({List<String>? additionalArgs}) async {
-    // ignore: avoid_print
-    final Logger? logger = verboseLogging ? print : null;
+    final recentLogs = <String>[];
+    final stopwatch = Stopwatch()..start();
+    final Logger logger = verboseLogging
+        // ignore: avoid_print
+        ? print
+        : (String message) {
+            final trimmed = message.length > 1500 ? '${message.substring(0, 1500)}...' : message;
+            recentLogs.add('[${stopwatch.elapsedMilliseconds}ms] $trimmed');
+            if (recentLogs.length > 300) {
+              recentLogs.removeAt(0);
+            }
+          };
     final DapTestServer server = await _startServer(logger: logger, additionalArgs: additionalArgs);
     final DapTestClient client = await DapTestClient.connect(
       server,
       captureVmServiceTraffic: verboseLogging,
       logger: logger,
     );
-    return DapTestSession._(server, client);
+    return DapTestSession._(server, client, recentLogs);
   }
 
   /// Starts a DAP server that can be shared across tests.

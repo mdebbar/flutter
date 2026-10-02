@@ -351,7 +351,25 @@ class Chrome {
       }
       if (event.method == 'Page.loadEventFired') {
         _loadCount++;
-        print('[ORCHESTRATOR] shm: after load #$_loadCount ${describeShm(detailed: false)}');
+        final String shm = describeShm(detailed: false);
+        print('[ORCHESTRATOR] shm: after load #$_loadCount $shm');
+        // One zombie page (~2.5 GB, 17%) short of a full /dev/shm: force a V8
+        // GC and re-sample. A drop proves the segments belong to GC-reachable
+        // garbage of previous documents (H14) and the next load then succeeds;
+        // no drop means the release is not GC-driven (H15).
+        final int shmUsePercent = int.parse(
+          RegExp(r'(\d+)% /dev/shm').firstMatch(shm)?.group(1) ?? '0',
+        );
+        if (shmUsePercent >= 80) {
+          unawaited(
+            _cdp('HeapProfiler.collectGarbage').then((_) {
+              print(
+                '[ORCHESTRATOR] shm: after forced GC at load #$_loadCount '
+                '${describeShm(detailed: true)}',
+              );
+            }),
+          );
+        }
         unawaited(
           _cdp('Memory.getDOMCounters').then((String counters) async {
             print(
@@ -527,6 +545,10 @@ class Chrome {
       '${_describeNetwork()} system: ${_describeSystem()}',
     );
     print('[ORCHESTRATOR] shm: after healing ${describeShm(detailed: true)}');
+    // Same H14/H15 split on the stalled page (the loader already gave up, so
+    // this cannot rescue the build): does a V8 GC give /dev/shm back?
+    await _cdp('HeapProfiler.collectGarbage');
+    print('[ORCHESTRATOR] shm: after forced GC at refusal ${describeShm(detailed: true)}');
     await Future<void>.delayed(const Duration(seconds: 5));
     print(
       '[CHROME PAGE] probe 5s after healing: counters=${await _cdp('Memory.getDOMCounters')} '
@@ -590,9 +612,11 @@ class Chrome {
 
 /// One-line `/dev/shm` snapshot: `df` usage, visible file count and bytes (`du`),
 /// and, when [detailed], the largest visible entries (numeric uid, size, mtime,
-/// name), name patterns (digits collapsed to `N`), and bytes per process holding
-/// files open on it (`lsof`, if installed), which also covers unlinked files
-/// that `ls`/`du` cannot see (Chrome unlinks its shm files right after creation).
+/// name), name patterns (digits collapsed to `N`), and from `lsof` (if
+/// installed; it also covers unlinked files that `ls`/`du` cannot see, Chrome
+/// unlinks its shm files right after creation): bytes per process holding files
+/// open, the Chrome `--type=` role and RSS of the top holders, a histogram of
+/// distinct segment sizes (which allocator), and the fd/mem/deleted row split.
 String describeShm({required bool detailed}) {
   const brief =
       r'df -k /dev/shm | tail -n 1; '
@@ -602,9 +626,15 @@ String describeShm({required bool detailed}) {
       r'awk "{print \$3, \$5, \$6, \$7}"; '
       r'echo patterns:; ls -A /dev/shm | sed -E "s/[0-9]+/N/g" | sort | uniq -c | sort -rn | head -n 8; '
       r'echo "open (bytes count command pid user):"; '
-      r'if command -v lsof >/dev/null; then lsof -nP /dev/shm 2>/dev/null | '
-      r'awk "NR>1 {k=\$1\" \"\$2\" \"\$3; b[k]+=\$7; n[k]++} END {for (k in b) print b[k], n[k], k}" | '
-      r'sort -rn | head -n 10; else echo lsof-missing; fi';
+      r'if command -v lsof >/dev/null; then L=$(mktemp); lsof -nP /dev/shm >"$L" 2>/dev/null; '
+      r'awk "NR>1 {k=\$1\" \"\$2\" \"\$3; b[k]+=\$7; n[k]++} END {for (k in b) print b[k], n[k], k}" "$L" | '
+      r'sort -rn | head -n 10; '
+      r'echo "roles (pid rssKB type):"; for p in $(awk "NR>1 {print \$2}" "$L" | sort | uniq -c | sort -rn | head -n 4 | awk "{print \$2}"); do '
+      r'ps -o pid=,rss=,args= -p "$p" | awk "{t=\"browser\"; for (i=3; i<=NF; i++) if (\$i ~ /^--type=/) t=substr(\$i, 8); print \$1, \$2, t}"; done; '
+      r'echo "sizes (count x bytes, distinct pid+inode):"; '
+      r'awk "NR>1 && !seen[\$2\" \"\$8]++ {c[\$7]++} END {for (s in c) print c[s] \"x\" s}" "$L" | sort -t x -k1 -rn | head -n 6; '
+      r'echo "rows: fd=$(awk "NR>1 && \$4 != \"mem\"" "$L" | wc -l) mem=$(awk "NR>1 && \$4 == \"mem\"" "$L" | wc -l) deleted=$(grep -c deleted "$L")"; '
+      r'rm -f "$L"; else echo lsof-missing; fi';
   final script = detailed ? '$brief; $full' : brief;
   final io.ProcessResult result = io.Process.runSync('sh', <String>['-c', script]);
   return '${result.stdout}${result.stderr}'.trim().replaceAll(RegExp(r'\s*\n\s*'), ' | ');

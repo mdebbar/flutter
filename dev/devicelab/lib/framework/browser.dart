@@ -26,6 +26,9 @@ const kGcmDisabledFlags = <String>[
 /// Keep this constant in sync with the same constant defined in `dev/benchmarks/macrobenchmarks/lib/src/web/recorder.dart`.
 const int _kMeasuredSampleCount = 10;
 
+/// Where Chrome writes its own log (diagnostics for ERR_INSUFFICIENT_RESOURCES).
+final String _chromeLogPath = '${io.Directory.systemTemp.path}/chrome_debug_${io.pid}.log';
+
 /// Options passed to Chrome when launching it.
 class ChromeOptions {
   ChromeOptions({
@@ -146,6 +149,8 @@ class Chrome {
       '--disable-search-engine-choice-screen',
       if (io.Platform.isMacOS) '--use-mock-keychain',
       if (jsFlags.isNotEmpty) '--js-flags=$jsFlags',
+      '--enable-logging',
+      '--log-file=$_chromeLogPath',
     ];
 
     final io.Process chromeProcess = await _spawnChromiumProcess(
@@ -279,6 +284,10 @@ class Chrome {
   // failed with ERR_INSUFFICIENT_RESOURCES.
   final _unfinishedRequests = <String, String>{};
   final _requestsSentToServer = <String>{};
+  // Requests whose response headers reached the network stack, and whose
+  // response (with its body pipe) reached the renderer.
+  final _responseHeadersReceived = <String>{};
+  final _responsesDelivered = <String>{};
   final _refusedRequests = <String>{};
   var _requestsSinceNavigation = 0;
 
@@ -301,6 +310,10 @@ class Chrome {
               '${params['type']} ${(params['request'] as Map<String, dynamic>)['url']}';
         case 'Network.requestWillBeSentExtraInfo':
           _requestsSentToServer.add(requestId!);
+        case 'Network.responseReceivedExtraInfo':
+          _responseHeadersReceived.add(requestId!);
+        case 'Network.responseReceived':
+          _responsesDelivered.add(requestId!);
         case 'Network.loadingFinished':
           _unfinishedRequests.remove(requestId);
         case 'Network.loadingFailed':
@@ -312,6 +325,8 @@ class Chrome {
             when (params['frame'] as Map<String, dynamic>)['parentId'] == null:
           _requestsSinceNavigation = 0;
           _requestsSentToServer.clear();
+          _responseHeadersReceived.clear();
+          _responsesDelivered.clear();
           _refusedRequests.clear();
       }
       final String? message = switch (event.method) {
@@ -495,7 +510,7 @@ class Chrome {
 
     print(
       '[CHROME PAGE] probe at first refusal: load=${await _cdp('Runtime.evaluate', loadProfile)} '
-      '${_describeNetwork()}',
+      '${_describeNetwork()} system: ${_describeSystem()}',
     );
     final healing = Stopwatch()..start();
     String fetchResult = await _cdp('Runtime.evaluate', fetchProbe);
@@ -505,13 +520,30 @@ class Chrome {
     }
     print(
       '[CHROME PAGE] probe healed after ${healing.elapsedMilliseconds}ms: $fetchResult '
-      '${_describeNetwork()}',
+      '${_describeNetwork()} system: ${_describeSystem()}',
     );
     await Future<void>.delayed(const Duration(seconds: 5));
     print(
       '[CHROME PAGE] probe 5s after healing: counters=${await _cdp('Memory.getDOMCounters')} '
       '${await _cdp('Runtime.evaluate', fetchProbe)} ${_describeNetwork()}',
     );
+    // Chrome's own log, minus the page's console messages and D-Bus noise.
+    final io.ProcessResult chromeLog = io.Process.runSync('sh', <String>[
+      '-c',
+      "grep -v -E 'CONSOLE|dbus|DBus' $_chromeLogPath | tail -n 40",
+    ]);
+    print('[CHROME PAGE] chrome log tail:\n${chromeLog.stdout}${chromeLog.stderr}');
+  }
+
+  /// Snapshot of the limits and usage that could make Chrome fail to allocate
+  /// a file descriptor, shared memory, or memory: the soft and hard `ulimit -n`,
+  /// `/dev/shm` usage (`df -k`), and memory (`free -m`).
+  String _describeSystem() {
+    final io.ProcessResult result = io.Process.runSync('sh', <String>[
+      '-c',
+      r'echo nofile=$(ulimit -n)/$(ulimit -Hn); df -k /dev/shm | tail -n 1; free -m | sed -n 2p',
+    ]);
+    return '${result.stdout}${result.stderr}'.trim().replaceAll(RegExp(r'\s*\n\s*'), ' | ');
   }
 
   /// Describes the page's requests as DevTools saw them since the last
@@ -520,7 +552,9 @@ class Chrome {
   /// A refused request that never reached the network stack (no
   /// `requestWillBeSentExtraInfo`) was refused when its loader was created, e.g.
   /// by a per-process cap on live loaders. One that did reach it was refused
-  /// after its response arrived, e.g. because a data pipe could not be created.
+  /// later: before its response headers arrived (no `responseReceivedExtraInfo`),
+  /// between the headers and the delivery of the response to the renderer (no
+  /// `responseReceived`, e.g. a data pipe could not be created), or after.
   String _describeNetwork() {
     final types = <String, int>{};
     for (final String request in _unfinishedRequests.values) {
@@ -528,7 +562,9 @@ class Chrome {
     }
     return 'net: requests=$_requestsSinceNavigation unfinished=${_unfinishedRequests.length} $types '
         'oldest=${_unfinishedRequests.values.take(3).toList()} refused=${_refusedRequests.length} '
-        'refusedAfterSend=${_refusedRequests.where(_requestsSentToServer.contains).length}';
+        'refusedAfterSend=${_refusedRequests.where(_requestsSentToServer.contains).length} '
+        'refusedAfterHeaders=${_refusedRequests.where(_responseHeadersReceived.contains).length} '
+        'refusedAfterResponse=${_refusedRequests.where(_responsesDelivered.contains).length}';
   }
 
   /// Disconnects from the Chrome process without killing it.

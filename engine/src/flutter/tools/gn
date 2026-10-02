@@ -1357,11 +1357,33 @@ def main(argv):
     command.append('-v')
 
   print('Generating GN files in: %s' % out_dir)
+  diag_lines = [
+      '[DEFLAKE_DIAG] bot=%s vpython_root_env=%s' %
+      (os.environ.get('SWARMING_BOT_ID'), os.environ.get('VPYTHON_VIRTUALENV_ROOT'))
+  ]
+  for root in [
+      os.environ.get('VPYTHON_VIRTUALENV_ROOT'),
+      os.path.expanduser('~/.vpython-root'),
+      'C:/b/s/w/ir/cache/vpython',
+  ]:
+    if root and os.path.exists(root):
+      store = os.path.join(root, 'store')
+      entries = os.listdir(store) if os.path.isdir(store) else []
+      wheels = [e for e in entries if 'eeaaiqs' in e or 'wheels' in e]
+      diag_lines.append('[DEFLAKE_DIAG] pre_gn root=%s store_entries=%d wheels=%s' % (root, len(entries), wheels))
+  angle_vp = os.path.join(SRC_ROOT, 'flutter', 'third_party', 'angle', '.vpython3')
+  diag_lines.append('[DEFLAKE_DIAG] angle_vpython3_exists=%s' % os.path.exists(angle_vp))
   try:
     gn_call_result = subprocess.call(command, cwd=SRC_ROOT)
   except subprocess.CalledProcessError as exc:
     print('Failed to generate gn files: ', exc.returncode, exc.output)
     sys.exit(1)
+
+  if os.path.isdir(out_dir):
+    with open(os.path.join(out_dir, 'deflake_vpython_diag.txt'), 'w') as df:
+      df.write('\n'.join(diag_lines) + '\n')
+  for line in diag_lines:
+    print(line)
 
   return gn_call_result
 

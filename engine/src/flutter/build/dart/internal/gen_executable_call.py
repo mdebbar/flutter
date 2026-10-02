@@ -49,6 +49,17 @@ $command $args
 
   # Make the script executable.
   os.chmod(args.output, 0o755)
+  if args.output.endswith('gen_dartcli_call'):
+    if os.path.exists('deflake_vpython_diag.txt'):
+      with open('deflake_vpython_diag.txt') as df:
+        print(df.read().strip())
+    vproot = os.environ.get('VPYTHON_VIRTUALENV_ROOT') or os.path.expanduser('~/.vpython-root')
+    store = os.path.join(vproot, 'store')
+    if os.path.isdir(store):
+      matches = [e for e in os.listdir(store) if 'eeaaiqs' in e or 'wheels' in e]
+      print('[DEFLAKE_DIAG] in_ninja store=%s matches=%s' % (store, matches))
+    else:
+      print('[DEFLAKE_DIAG] in_ninja store_missing=%s' % store)
 
 
 if __name__ == '__main__':

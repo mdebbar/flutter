@@ -1357,39 +1357,11 @@ def main(argv):
     command.append('-v')
 
   print('Generating GN files in: %s' % out_dir)
-  vp_store = os.path.dirname(sys.prefix)
-  diag_lines = [
-      '[DEFLAKE_DIAG] pre_gn bot=%s sys_prefix=%s vpython_root_env=%s' % (
-          os.environ.get('SWARMING_BOT_ID'),
-          sys.prefix,
-          os.environ.get('VPYTHON_VIRTUALENV_ROOT'),
-      )
-  ]
-  for store in [
-      vp_store,
-      os.path.dirname(vp_store),
-      'C:/b/s/w/ir/cache/vpython/store',
-  ]:
-    if store and os.path.isdir(store):
-      entries = os.listdir(store)
-      wheels = [e for e in entries if 'eeaaiqs' in e or 'wheels' in e]
-      diag_lines.append('[DEFLAKE_DIAG] pre_gn store=%s total=%d wheels=%s' % (store, len(entries), wheels))
-      for w in wheels:
-        wpath = os.path.join(store, w)
-        sub = os.listdir(wpath) if os.path.isdir(wpath) else 'not_dir'
-        diag_lines.append('[DEFLAKE_DIAG] pre_gn wheel_entry=%s contents=%s' % (w, sub))
   try:
     gn_call_result = subprocess.call(command, cwd=SRC_ROOT)
   except subprocess.CalledProcessError as exc:
     print('Failed to generate gn files: ', exc.returncode, exc.output)
     sys.exit(1)
-
-  abs_out_dir = os.path.join(SRC_ROOT, out_dir)
-  if os.path.isdir(abs_out_dir):
-    with open(os.path.join(abs_out_dir, 'deflake_vpython_diag.txt'), 'w') as df:
-      df.write('\n'.join(diag_lines) + '\n')
-  for line in diag_lines:
-    print(line)
 
   return gn_call_result
 

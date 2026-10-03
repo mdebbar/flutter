@@ -9,7 +9,6 @@
 import argparse
 import os
 import string
-import sys
 
 
 def main():
@@ -50,19 +49,6 @@ $command $args
 
   # Make the script executable.
   os.chmod(args.output, 0o755)
-  if args.output.endswith('gen_dartcli_call'):
-    if os.path.exists('deflake_vpython_diag.txt'):
-      with open('deflake_vpython_diag.txt') as df:
-        print(df.read().strip())
-    print('[DEFLAKE_DIAG] in_ninja sys_prefix=%s exe=%s' % (sys.prefix, sys.executable))
-    cur = sys.prefix
-    for _ in range(4):
-      cur = os.path.dirname(cur)
-      if os.path.isdir(cur):
-        entries = os.listdir(cur)
-        matches = [e for e in entries if 'eeaaiqs' in e or 'wheels' in e or 'venv' in e]
-        if matches:
-          print('[DEFLAKE_DIAG] in_ninja dir=%s matches=%s' % (cur, matches))
 
 
 if __name__ == '__main__':

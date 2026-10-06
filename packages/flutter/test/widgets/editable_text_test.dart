@@ -69,6 +69,15 @@ TextEditingValue collapsedAtEnd(String text) {
 }
 
 void main() {
+  // PROTOTYPE ONLY (do not land): intentional failures to exercise the LUCI
+  // failure summary.
+  testWidgets('PROTOTYPE intentional failure: wrong arithmetic', (WidgetTester tester) async {
+    expect(1 + 1, 3, reason: 'intentional failure for the failure-summary prototype');
+  });
+  testWidgets('PROTOTYPE intentional failure: missing widget', (WidgetTester tester) async {
+    await tester.pumpWidget(const SizedBox());
+    expect(find.text('does not exist'), findsOneWidget);
+  });
   late TextEditingController controller;
   late FocusNode focusNode;
   late FocusScopeNode focusScopeNode;

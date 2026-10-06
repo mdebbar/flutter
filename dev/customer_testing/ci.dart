@@ -81,6 +81,8 @@ void main(List<String> args) async {
     '--skip-on-fetch-failure',
     '--skip-template',
     p.posix.joinAll(<String>[...p.split(testsCacheDir.path), 'registry', '*.test']),
+    // PROTOTYPE ONLY (do not land).
+    'prototype_failure.test',
   ], mode: io.ProcessStartMode.inheritStdio);
   if ((await test.exitCode) != 0) {
     io.exitCode = 1;

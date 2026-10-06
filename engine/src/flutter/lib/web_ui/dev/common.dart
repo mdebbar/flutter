@@ -217,6 +217,8 @@ class LuciConfig {
     final json = jsonDecode(contextJson) as Map<String, Object?>;
     final LuciRealm realm = switch ((json['realm'] as Map<String, Object?>?)?['name']) {
       'flutter:prod' => LuciRealm.Prod,
+      // PROTOTYPE ONLY (do not land): led builds run in the shadow realm.
+      'flutter:try.shadow' => LuciRealm.Prod,
       'flutter:staging' => LuciRealm.Staging,
       'flutter:try' => LuciRealm.Try,
       _ => LuciRealm.Unknown,
@@ -259,6 +261,11 @@ final String gitRevision = () {
 }();
 
 final String contentHash = () {
+  // PROTOTYPE ONLY (do not land): this branch touches engine/, so its own
+  // content hash has no prebuilt web SDK; reuse upstream master's artifacts.
+  if (io.Platform.environment['LUCI_CONTEXT'] != null) {
+    return '42bfe92a97228c132c29985f01b3d0d972d2428e';
+  }
   final String scriptDir = path.join(environment.flutterRootDir.path, 'bin', 'internal');
   final String executable;
   final List<String> args;

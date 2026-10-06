@@ -566,12 +566,16 @@ TEST_F(FlutterWindowControllerSizeTest, SizedToContentNotResizable) {
 
   CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
   double pixelRatio = [window backingScaleFactor];
+  double initialWidth = window.frame.size.width;
   while (window.frame.size.width != 300 / pixelRatio &&
+         window.frame.size.width != 200 / pixelRatio &&
          CFAbsoluteTimeGetCurrent() - startTime < kTestTimeout) {
     CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, true);
   }
 
   NSRect contentRect = [window contentRectForFrameRect:window.frame];
+  fprintf(stderr, "[DEFLAKE] SizedToContentNotResizable initialW=%.1f afterLoopW=%.1f contentW=%.1f ratio=%.1f\n",
+          initialWidth, window.frame.size.width, contentRect.size.width, pixelRatio);
   EXPECT_EQ(contentRect.size.width, 300 / pixelRatio);
   EXPECT_EQ(contentRect.size.height, 300 / pixelRatio);
   EXPECT_TRUE((window.styleMask & NSWindowStyleMaskResizable) == 0);

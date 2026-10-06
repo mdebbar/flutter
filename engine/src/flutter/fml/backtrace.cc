@@ -105,12 +105,33 @@ static std::string SignalNameToString(int signal) {
 
 static void ToggleSignalHandlers(bool set);
 
-static void SignalHandler(int signal) {
+#if defined(FML_OS_MACOSX)
+#include <dlfcn.h>
+#include <malloc/malloc.h>
+#include <sys/ucontext.h>
+#endif
+
+static void SignalHandler(int signal, siginfo_t* info, void* ucontext) {
   // We are a crash signal handler. This can only happen once. Since we don't
   // want to catch crashes while we are generating the crash reports, disable
   // all set signal handlers to their default values before reporting the crash
   // and re-raising the signal.
   ToggleSignalHandlers(false);
+
+#if defined(FML_OS_MACOSX) && defined(FML_ARCH_CPU_ARM64)
+  if (auto* ctx = static_cast<ucontext_t*>(ucontext)) {
+    void* pc = reinterpret_cast<void*>(ctx->uc_mcontext->__ss.__pc);
+    void* lr = reinterpret_cast<void*>(ctx->uc_mcontext->__ss.__lr);
+    Dl_info dl_pc = {};
+    dladdr(pc, &dl_pc);
+    fprintf(stderr, "[DEFLAKE] Signal %d at pc=%p (%s+%td) lr=%p x0=0x%llx x1=0x%llx heap_ok=%d\n",
+            signal, pc, dl_pc.dli_sname ? dl_pc.dli_sname : "?",
+            static_cast<ptrdiff_t>(reinterpret_cast<uintptr_t>(pc) -
+                                   reinterpret_cast<uintptr_t>(dl_pc.dli_saddr)),
+            lr, ctx->uc_mcontext->__ss.__x[0], ctx->uc_mcontext->__ss.__x[1],
+            malloc_zone_check(nullptr));
+  }
+#endif
 
   FML_LOG(ERROR) << "Caught signal " << SignalNameToString(signal)
                  << " during program execution." << std::endl
@@ -129,11 +150,23 @@ static void SignalHandler(int signal) {
 static void ToggleSignalHandlers(bool set) {
   for (size_t i = 0; i < sizeof(kKnownSignalHandlers) / sizeof(size_t); ++i) {
     auto signal_name = kKnownSignalHandlers[i];
+#if !FML_OS_WIN
+    struct sigaction sa = {};
+    if (set) {
+      sa.sa_sigaction = &SignalHandler;
+      sa.sa_flags = SA_SIGINFO;
+    } else {
+      sa.sa_handler = SIG_DFL;
+    }
+    if (::sigaction(signal_name, &sa, nullptr) != 0) {
+      FML_LOG(ERROR) << "Could not attach signal handler for " << signal_name;
+    }
+#else
     auto handler = set ? &SignalHandler : SIG_DFL;
-
     if (::signal(signal_name, handler) == SIG_ERR) {
       FML_LOG(ERROR) << "Could not attach signal handler for " << signal_name;
     }
+#endif
   }
 }
 

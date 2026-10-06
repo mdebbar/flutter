@@ -102,7 +102,7 @@ import Testing
         return "Hello world"
       }())
     if writer.didLog || wasEvaluated {
-      print("[DEFLAKE] LoggerTests race: logLevel=\(Logger.logLevel.rawValue) sameWriter=\(Logger.outputWriter === writer)")
+      fputs("[DEFLAKE] LoggerTests race: didLog=\(writer.didLog) wasEvaluated=\(wasEvaluated) logLevel=\(Logger.logLevel.rawValue) sameWriter=\(Logger.outputWriter === writer)\n", stderr)
     }
     #expect(!writer.didLog)
     #expect(!wasEvaluated)

@@ -45,13 +45,21 @@
 @interface TextInputTestViewController : FlutterViewController
 @end
 
+#include <malloc/malloc.h>
+#include <objc/runtime.h>
+
 @implementation TextInputTestViewController
 - (nonnull FlutterView*)createFlutterViewWithMTLDevice:(id<MTLDevice>)device
                                           commandQueue:(id<MTLCommandQueue>)commandQueue {
-  fprintf(stderr, "[DEFLAKE] createFlutterViewWithMTLDevice os=%s inputCtx=%p\n",
+  id mock = OCMClassMock([NSView class]);
+  fprintf(stderr,
+          "[DEFLAKE] createFlutterViewWithMTLDevice os=%s mock=%p malloc_sz=%zu cls_sz=%zu "
+          "nsview_sz=%zu heap_ok=%d\n",
           [[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String],
-          (__bridge void*)[NSTextInputContext currentInputContext]);
-  return OCMClassMock([NSView class]);
+          (__bridge void*)mock, malloc_size((__bridge const void*)mock),
+          class_getInstanceSize(object_getClass(mock)), class_getInstanceSize([NSView class]),
+          malloc_zone_check(nullptr));
+  return mock;
 }
 @end
 
@@ -952,6 +960,7 @@ static const FlutterViewIdentifier kViewId = 1;
       [[TextInputTestViewController alloc] initWithEngine:engineMock nibName:nil bundle:nil];
   [controllerMock loadView];
   id viewMock = controllerMock.flutterView;
+  fprintf(stderr, "[DEFLAKE] after loadView heap_ok=%d\n", malloc_zone_check(nullptr));
   OCMStub(  // NOLINT(google-objc-avoid-throwing-exception)
       [viewMock bounds])
       .andReturn(NSMakeRect(0, 0, 200, 200));

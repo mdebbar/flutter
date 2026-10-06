@@ -609,7 +609,7 @@ class WebTestsSuite {
     const fileSystem = LocalFileSystem();
     final suffix = DateTime.now().microsecondsSinceEpoch.toString();
     final File metricFile = fileSystem.systemTempDirectory.childFile('metrics_$suffix.json');
-    await runCommand(
+    final CommandResult result = await runCommand(
       flutter,
       <String>[
         'test',
@@ -625,12 +625,12 @@ class WebTestsSuite {
       workingDirectory: workingDirectory,
       environment: <String, String>{'FLUTTER_WEB': 'true'},
     );
-    // metriciFile is a transitional file that needs to be deleted once it is parsed.
-    // TODO(godofredoc): Ensure metricFile is parsed and aggregated before deleting.
-    // https://github.com/flutter/flutter/issues/146003
-    if (!dryRun) {
-      metricFile.deleteSync();
-    }
+    await processFlutterTestResults(
+      metricFile: metricFile,
+      result: result,
+      workingDirectory: workingDirectory,
+      expectFailure: false,
+    );
   }
 
   // The `chromedriver` process created by this test.

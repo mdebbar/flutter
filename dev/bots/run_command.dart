@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:core' hide print;
 import 'dart:io' as io;
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as path;
 
 import 'utils.dart';
@@ -291,7 +292,7 @@ Future<CommandResult> runCommand(
     final allOutput = '${result.flattenedStdout}\n${result.flattenedStderr}';
     foundError(<String>[
       ?failureMessage,
-      '${bold}Command: $green$commandDescription$reset',
+      '${bold}Command: $green${elideCommandDescription(executable, arguments, workingDirectory)}$reset',
       if (failureMessage == null)
         '$bold${red}Command exited with exit code ${result.exitCode} but expected ${expectNonZeroExit ? (expectedExitCode ?? 'non-zero') : 'zero'} exit code.$reset',
       '${bold}Working directory: $cyan${path.absolute(relativeWorkingDir)}$reset',
@@ -309,6 +310,37 @@ Future<CommandResult> runCommand(
 final String _flutterRoot = path.dirname(
   path.dirname(path.dirname(path.fromUri(io.Platform.script))),
 );
+
+/// Maximum length of the command description included in error messages.
+///
+/// Error messages are repeated at the end of the log and surfaced as the LUCI
+/// build summary, which is capped at 4000 bytes. A `flutter test` invocation
+/// over a whole subshard lists hundreds of test files (~5 KB), which would
+/// otherwise push the actual failure out of the summary.
+const int kMaxCommandDescriptionLength = 256;
+
+/// Returns `executable arguments...` truncated to [kMaxCommandDescriptionLength]
+/// characters at an argument boundary, followed by a count of elided arguments.
+///
+/// The full command is always printed by `RUNNING:` when the command starts.
+@visibleForTesting
+String elideCommandDescription(String executable, List<String> arguments, String? workingDirectory) {
+  final buffer = StringBuffer(path.relative(executable, from: workingDirectory));
+  var elided = 0;
+  for (final argument in arguments) {
+    if (elided > 0 || buffer.length + 1 + argument.length > kMaxCommandDescriptionLength) {
+      elided += 1;
+      continue;
+    }
+    buffer
+      ..write(' ')
+      ..write(argument);
+  }
+  if (elided > 0) {
+    buffer.write(' ... (+$elided more arguments; see the RUNNING: line above for the full command)');
+  }
+  return buffer.toString();
+}
 
 String _prettyPrintRunCommand(String executable, List<String> arguments, String? workingDirectory) {
   final output = StringBuffer();

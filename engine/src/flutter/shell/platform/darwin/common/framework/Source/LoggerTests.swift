@@ -101,6 +101,9 @@ import Testing
         wasEvaluated = true
         return "Hello world"
       }())
+    if writer.didLog || wasEvaluated {
+      print("[DEFLAKE] LoggerTests race: logLevel=\(Logger.logLevel.rawValue) sameWriter=\(Logger.outputWriter === writer)")
+    }
     #expect(!writer.didLog)
     #expect(!wasEvaluated)
   }

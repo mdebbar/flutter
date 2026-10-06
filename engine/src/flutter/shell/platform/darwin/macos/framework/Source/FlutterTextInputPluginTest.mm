@@ -48,6 +48,9 @@
 @implementation TextInputTestViewController
 - (nonnull FlutterView*)createFlutterViewWithMTLDevice:(id<MTLDevice>)device
                                           commandQueue:(id<MTLCommandQueue>)commandQueue {
+  fprintf(stderr, "[DEFLAKE] createFlutterViewWithMTLDevice os=%s inputCtx=%p\n",
+          [[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String],
+          (__bridge void*)[NSTextInputContext currentInputContext]);
   return OCMClassMock([NSView class]);
 }
 @end

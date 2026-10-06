@@ -18,6 +18,7 @@
 #include "flutter/fml/platform/win/windows_shim.h"
 #else  // FML_OS_WIN
 #include <execinfo.h>
+#include <unistd.h>
 #endif  // FML_OS_WIN
 
 namespace fml {
@@ -69,6 +70,8 @@ static size_t kKnownSignalHandlers[] = {
     SIGSYS,   // non-existent system call invoked
     SIGPIPE,  // write on a pipe with no reader
     SIGALRM,  // real-time timer expired
+    SIGTRAP,  // trace/breakpoint trap (e.g. ObjC/CF runtime trap on macOS arm64)
+    SIGILL,   // illegal instruction trap
 #endif        // !FML_OS_WIN
 };
 
@@ -91,6 +94,10 @@ static std::string SignalNameToString(int signal) {
       return "SIGPIPE";
     case SIGALRM:
       return "SIGALRM";
+    case SIGTRAP:
+      return "SIGTRAP";
+    case SIGILL:
+      return "SIGILL";
 #endif  // !FML_OS_WIN
   };
   return std::to_string(signal);
@@ -108,6 +115,13 @@ static void SignalHandler(int signal) {
   FML_LOG(ERROR) << "Caught signal " << SignalNameToString(signal)
                  << " during program execution." << std::endl
                  << BacktraceHere(3);
+#if !FML_OS_WIN
+  void* symbols[256];
+  const int frames = ::backtrace(symbols, 256);
+  if (frames > 0) {
+    ::backtrace_symbols_fd(symbols, frames, STDERR_FILENO);
+  }
+#endif  // !FML_OS_WIN
 
   ::raise(signal);
 }

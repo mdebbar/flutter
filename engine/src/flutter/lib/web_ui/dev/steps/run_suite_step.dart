@@ -82,7 +82,10 @@ class RunSuiteStep implements PipelineStep {
 
   @override
   Future<void> run() async {
-    _prepareTestResultsDirectory();
+    final io.Directory resultsDirectory = _prepareTestResultsDirectory();
+    // Machine-readable results, used to print the failure summary below (and
+    // kept next to the screenshots for post-mortem inspection).
+    final jsonReport = io.File(pathlib.join(resultsDirectory.path, 'test_results.json'));
     final BrowserEnvironment browserEnvironment = getBrowserEnvironment(
       suite.runConfig.browser,
       useDwarf: useDwarf,
@@ -97,7 +100,11 @@ class RunSuiteStep implements PipelineStep {
     );
     final String bundleBuildPath = getBundleBuildDirectory(suite.testBundle).path;
     final testArgs = <String>[
-      ...<String>['-r', 'compact'],
+      // The compact reporter overwrites lines with `\r`, which is unreadable in
+      // CI logs; use the expanded reporter when not attached to a terminal.
+      '-r',
+      if (io.stdout.hasTerminal) 'compact' else 'expanded',
+      '--file-reporter=json:${jsonReport.path}',
       // Disable concurrency. Running with concurrency proved to be flaky.
       '--concurrency=1',
       if (startPaused) '--pause-after-load',
@@ -144,14 +151,90 @@ class RunSuiteStep implements PipelineStep {
     // the exit code. We use this as a signal that there were some tests that failed.
     if (io.exitCode != 0) {
       print('[${suite.name.ansiCyan}] ${'Some tests failed.'.ansiRed}');
+      final List<FailedTest> failedTests = _readFailedTests(jsonReport);
+      _printFailureSummary(failedTests);
       // Change the exit code back to 0 when we're done. Failures will be bubbled up
       // at the end of the pipeline and we'll exit abnormally if there were any
       // failures in the pipeline.
       io.exitCode = 0;
-      throw ToolExit('Some unit tests failed in suite ${suite.name.ansiCyan}.');
+      throw ToolExit(
+        failedTests.isEmpty
+            ? 'Some unit tests failed in suite ${suite.name.ansiCyan}.'
+            : '${failedTests.length} unit test(s) failed in suite ${suite.name.ansiCyan}.',
+      );
     } else {
       print('[${suite.name.ansiCyan}] ${'All tests passed!'.ansiGreen}');
     }
+  }
+
+  /// Maximum number of failing tests listed in the failure summary.
+  static const int _maxListedFailures = 10;
+
+  /// Delimiters of the failure summary block.
+  ///
+  /// The CI recipes (`test_utils.run_test` in flutter/recipes) extract the text
+  /// between these two lines and surface it as the LUCI build summary. Keep in
+  /// sync with `kFailureSummaryBegin`/`kFailureSummaryEnd` in
+  /// `dev/bots/utils.dart` of the framework.
+  static const String _failureSummaryBegin = '===== BEGIN FAILURE SUMMARY =====';
+  static const String _failureSummaryEnd = '===== END FAILURE SUMMARY =====';
+
+  /// Prints one line per failing test (plus the first lines of its first
+  /// error) inside the failure summary delimiters.
+  void _printFailureSummary(List<FailedTest> failedTests) {
+    print(_failureSummaryBegin);
+    if (failedTests.isEmpty) {
+      print('[${suite.name}] Some tests failed (no per-test results available).');
+    } else {
+      print('[${suite.name}] ${failedTests.length} test(s) failed:');
+      for (final FailedTest test in failedTests.take(_maxListedFailures)) {
+        print('  ${test.suitePath}: ${test.name}');
+        for (final String errorLine in test.errorLines) {
+          print('    $errorLine');
+        }
+      }
+      if (failedTests.length > _maxListedFailures) {
+        print('  ... and ${failedTests.length - _maxListedFailures} more');
+      }
+    }
+    print(_failureSummaryEnd);
+  }
+
+  /// Parses the `package:test` JSON reporter output and returns the tests that
+  /// did not succeed, in the order they finished.
+  static List<FailedTest> _readFailedTests(io.File jsonReport) {
+    if (!jsonReport.existsSync()) {
+      return const <FailedTest>[];
+    }
+    final suitePaths = <int, String>{};
+    final tests = <int, FailedTest>{};
+    final failed = <FailedTest>[];
+    for (final String line in jsonReport.readAsLinesSync()) {
+      final Object? event;
+      try {
+        event = json.decode(line);
+      } on FormatException {
+        continue;
+      }
+      switch (event) {
+        case {'type': 'suite', 'suite': {'id': final int id, 'path': final String path}}:
+          suitePaths[id] = pathlib.basename(path);
+        case {
+          'type': 'testStart',
+          'test': {'id': final int id, 'name': final String name, 'suiteID': final int suiteID},
+        }:
+          tests[id] = FailedTest(suitePath: suitePaths[suiteID] ?? '<unknown>', name: name);
+        case {'type': 'error', 'testID': final int testID, 'error': final Object? error}:
+          tests[testID]?.recordError('$error');
+        case {'type': 'testDone', 'testID': final int testID, 'result': final String result}:
+          final FailedTest? test = tests[testID];
+          final hidden = event['hidden'] == true;
+          if (test != null && result != 'success' && !hidden) {
+            failed.add(test);
+          }
+      }
+    }
+    return failed;
   }
 
   io.Directory _prepareTestResultsDirectory() {
@@ -287,5 +370,38 @@ class RunSuiteStep implements PipelineStep {
     }
 
     return (false, 'Unknown');
+  }
+}
+
+/// A test that did not succeed, as reported by the `package:test` JSON reporter.
+class FailedTest {
+  FailedTest({required this.suitePath, required this.name});
+
+  /// Base name of the test file.
+  final String suitePath;
+
+  /// Full test name, including group prefixes.
+  final String name;
+
+  /// Maximum number of lines kept from the first error message. Matcher
+  /// failures span several lines (Expected/Actual/Which).
+  static const int maxErrorLines = 3;
+
+  List<String> _errorLines = const <String>[];
+
+  /// The first [maxErrorLines] lines of the first error reported for this
+  /// test, trimmed; empty if no error was reported.
+  List<String> get errorLines => _errorLines;
+
+  void recordError(String error) {
+    if (_errorLines.isNotEmpty) {
+      return;
+    }
+    _errorLines = error
+        .trim()
+        .split('\n')
+        .take(maxErrorLines)
+        .map((String line) => line.trim())
+        .toList();
   }
 }

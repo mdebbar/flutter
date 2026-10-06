@@ -1649,6 +1649,19 @@ abstract class TestWidgetsFlutterBinding extends BindingBase
   late StackTraceDemangler _oldStackTraceDemangler;
   FlutterErrorDetails? _pendingExceptionDetails;
 
+  /// Mirrors an error report that the framework wrote to the browser's
+  /// `console.error` into the test runner's output.
+  ///
+  /// On the web, [FlutterError.dumpErrorToConsole] bypasses [print], so the
+  /// test runner never sees the report: `flutter test` only records the
+  /// generic "Test failed. See exception logs above." for the test, and the
+  /// actual failure (matcher output, thrown exception) is only visible in the
+  /// browser console. Routing the report through [print] attributes it to the
+  /// running test like it is on the VM.
+  void _forwardWebErrorDump(String message) {
+    print(message); // ignore: avoid_print
+  }
+
   _MockMessageHandler? _announcementHandler;
   List<CapturedAccessibilityAnnouncement> _announcements = <CapturedAccessibilityAnnouncement>[];
 
@@ -1809,6 +1822,9 @@ abstract class TestWidgetsFlutterBinding extends BindingBase
         _pendingExceptionDetails = details;
       }
     };
+    if (kIsWeb) {
+      ErrorToConsoleDumper.addWebDumpListener(_forwardWebErrorDump);
+    }
     FlutterError.demangleStackTrace = (StackTrace stack) {
       // package:stack_trace uses ZoneSpecification.errorCallback to add useful
       // information to stack traces, meaning Trace and Chain classes can be
@@ -2234,6 +2250,9 @@ abstract class TestWidgetsFlutterBinding extends BindingBase
     _currentTestDescription = '';
     FlutterError.onError = _oldExceptionHandler;
     FlutterError.demangleStackTrace = _oldStackTraceDemangler;
+    if (kIsWeb) {
+      ErrorToConsoleDumper.removeWebDumpListener(_forwardWebErrorDump);
+    }
     _pendingExceptionDetails = null;
     _parentZone = null;
     _testZone = null;

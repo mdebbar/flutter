@@ -27,6 +27,11 @@ class ErrorToConsoleDumper {
     _listeners.add(listener);
   }
 
+  /// Removes a listener previously added with [addWebDumpListener].
+  static void removeWebDumpListener(void Function(String message) listener) {
+    _listeners.remove(listener);
+  }
+
   /// Clears all listeners that capture error messages being dumped on the web.
   static void clearWebDumpListeners() {
     _listeners.clear();

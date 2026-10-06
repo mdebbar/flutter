@@ -212,11 +212,20 @@ Never reportSuccessAndExit(String message) {
   system.exit(0);
 }
 
+/// Delimiters of the failure summary block printed by [reportErrorsAndExit].
+///
+/// The CI recipes (`test_utils.run_test` in flutter/recipes) extract the text
+/// between these two lines and surface it as the LUCI build summary. Keep them
+/// in sync with the recipe.
+const String kFailureSummaryBegin = '===== BEGIN FAILURE SUMMARY =====';
+const String kFailureSummaryEnd = '===== END FAILURE SUMMARY =====';
+
 Never reportErrorsAndExit(String message) {
   _hideTimer?.cancel();
   _hideTimer = null;
   print('$clock $message$reset');
   print(redLine);
+  print(kFailureSummaryBegin);
   print('${red}The error messages reported above are repeated here:$reset');
   final bool printSeparators = _errorMessages.any((List<String> messages) => messages.length > 1);
   if (printSeparators) {
@@ -229,6 +238,7 @@ Never reportErrorsAndExit(String message) {
       print('  -- This line intentionally left blank --  ');
     }
   }
+  print(kFailureSummaryEnd);
   print(redLine);
   print('You may find the errors by searching for "╡ERROR #" in the logs.');
   system.exit(1);
@@ -595,6 +605,12 @@ Future<void> runFlutterTest(
     // "Test Results" tab.
     if (metricFile.existsSync()) {
       final test = TestFileReporterResults.fromFile(metricFile);
+      if (result.exitCode != 0 && !expectFailure) {
+        final List<String> failedTests = test.failedTestLines(workingDirectory: workingDirectory);
+        if (failedTests.isNotEmpty) {
+          foundError(failedTests);
+        }
+      }
       await reportTestResultsToResultDb(
         test,
         workingDirectory: workingDirectory,

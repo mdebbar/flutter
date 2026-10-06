@@ -19,6 +19,12 @@ Future<void> testMain() async {
 
   const region = Rect.fromLTWH(0, 0, 300, 300);
 
+  // PROTOTYPE ONLY (do not land): intentional failure to exercise the LUCI
+  // failure summary.
+  test('PROTOTYPE intentional failure: wrong arithmetic', () {
+    expect(1 + 1, 3, reason: 'intentional failure for the failure-summary prototype');
+  });
+
   test('draws lines with varying strokeWidth', () async {
     final recorder = PictureRecorder();
     final canvas = Canvas(recorder, region);

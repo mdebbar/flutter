@@ -1,0 +1,7 @@
+# PROTOTYPE ONLY (do not land): intentional failure to exercise the LUCI
+# failure summary.
+contact=mdebbar@google.com
+fetch=git clone https://github.com/flutter/cocoon.git tests
+fetch=git -C tests checkout 5bc3916e16d57d5233a26a3d6dfcce317538f3b5
+update=dashboard
+test=echo "PROTOTYPE intentional customer test failure" && exit 1

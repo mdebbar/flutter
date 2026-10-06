@@ -5,6 +5,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as path;
+
 class TestSpecs {
   TestSpecs({required this.path, required this.startTime});
 
@@ -73,6 +75,10 @@ class TestResult {
   /// `dart test` has no concept of expected failures, so every non-skipped
   /// test is expected to pass.
   String get expected => skipped ? 'SKIP' : 'PASS';
+
+  /// The error messages (without stack traces) reported for this test, in
+  /// the order they were emitted.
+  final List<String> errors = <String>[];
 }
 
 class TestFileReporterResults {
@@ -113,6 +119,10 @@ class TestFileReporterResults {
           addTestStart(test, time, testResults);
         case {'type': 'testDone'}:
           addTestDone(entry, testResults);
+        case {'type': 'error', 'testID': final int testID, 'error': final Object? error}:
+          final String stackTrace = entry['stackTrace'] as String? ?? '';
+          errors.add('$error\n $stackTrace');
+          testResults[testID]?.errors.add('$error');
         case {'error': final Object? error}:
           final String stackTrace = entry['stackTrace'] as String? ?? '';
           errors.add('$error\n $stackTrace');
@@ -133,6 +143,48 @@ class TestFileReporterResults {
   final Map<int, TestResult> testResults;
   final bool hasFailedTests;
   final List<String> errors;
+
+  /// Maximum number of failing tests listed by [failedTestLines].
+  static const int maxListedFailures = 10;
+
+  /// Maximum number of lines of the first error message included per failing
+  /// test by [failedTestLines].
+  static const int maxErrorLines = 3;
+
+  /// One line per failing test: `<suite path>: <test name>` followed by the
+  /// first [maxErrorLines] lines of its first error message, indented.
+  /// Suite paths are made relative to [workingDirectory].
+  ///
+  /// At most [maxListedFailures] tests are listed; the remainder is summarized
+  /// as a count. Intended for the error block printed at the end of the run,
+  /// which LUCI surfaces as the build summary.
+  List<String> failedTestLines({required String workingDirectory}) {
+    final List<TestResult> failed = testResults.values
+        .where((TestResult test) => !test.hidden && !test.skipped && test.result != 'success')
+        .toList();
+    if (failed.isEmpty) {
+      return const <String>[];
+    }
+    final lines = <String>['Failing tests (${failed.length}):'];
+    for (final TestResult test in failed.take(maxListedFailures)) {
+      final TestSpecs? spec = allTestSpecs[test.suiteID];
+      final String suite = spec == null
+          ? '<unknown suite>'
+          : path.relative(spec.path, from: workingDirectory);
+      lines.add('  $suite: ${test.name}');
+      if (test.errors.isNotEmpty) {
+        // Matcher failures span several lines (Expected/Actual/Which); keep the
+        // first few so the summary is actionable without the full log.
+        for (final String errorLine in test.errors.first.trim().split('\n').take(maxErrorLines)) {
+          lines.add('    ${errorLine.trim()}');
+        }
+      }
+    }
+    if (failed.length > maxListedFailures) {
+      lines.add('  ... and ${failed.length - maxListedFailures} more');
+    }
+    return lines;
+  }
 
   static void addTestSpec(Map<String, Object?> suite, int time, Map<int, TestSpecs> allTestSpecs) {
     if (suite case {'id': final int id, 'path': final String path}) {

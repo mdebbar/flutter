@@ -212,11 +212,20 @@ Never reportSuccessAndExit(String message) {
   system.exit(0);
 }
 
+/// Delimiters of the failure summary block printed by [reportErrorsAndExit].
+///
+/// The CI recipes (`test_utils.run_test` in flutter/recipes) extract the text
+/// between these two lines and surface it as the LUCI build summary. Keep them
+/// in sync with the recipe.
+const String kFailureSummaryBegin = '===== BEGIN FAILURE SUMMARY =====';
+const String kFailureSummaryEnd = '===== END FAILURE SUMMARY =====';
+
 Never reportErrorsAndExit(String message) {
   _hideTimer?.cancel();
   _hideTimer = null;
   print('$clock $message$reset');
   print(redLine);
+  print(kFailureSummaryBegin);
   print('${red}The error messages reported above are repeated here:$reset');
   final bool printSeparators = _errorMessages.any((List<String> messages) => messages.length > 1);
   if (printSeparators) {
@@ -229,6 +238,7 @@ Never reportErrorsAndExit(String message) {
       print('  -- This line intentionally left blank --  ');
     }
   }
+  print(kFailureSummaryEnd);
   print(redLine);
   print('You may find the errors by searching for "╡ERROR #" in the logs.');
   system.exit(1);
@@ -586,23 +596,12 @@ Future<void> runFlutterTest(
     environment: environment,
   );
 
-  // metriciFile is a transitional file that needs to be deleted once it is parsed.
-  // TODO(godofredoc): Ensure metricFile is parsed and aggregated before deleting.
-  // https://github.com/flutter/flutter/issues/146003
-  if (!dryRun) {
-    // Parse the test results and report the individual test cases to LUCI
-    // ResultDB (no-op off LUCI) so `flutter test`-based shards populate the
-    // "Test Results" tab.
-    if (metricFile.existsSync()) {
-      final test = TestFileReporterResults.fromFile(metricFile);
-      await reportTestResultsToResultDb(
-        test,
-        workingDirectory: workingDirectory,
-        expectFailure: expectFailure,
-      );
-    }
-    metricFile.deleteSync();
-  }
+  await processFlutterTestResults(
+    metricFile: metricFile,
+    result: result,
+    workingDirectory: workingDirectory,
+    expectFailure: expectFailure,
+  );
 
   if (outputChecker != null) {
     final String? message = outputChecker(result);
@@ -610,6 +609,46 @@ Future<void> runFlutterTest(
       foundError(<String>[message]);
     }
   }
+}
+
+/// Post-processes the `--file-reporter=json:` output of a `flutter test` run.
+///
+/// When the run failed unexpectedly, records the failing tests (with the first
+/// lines of their error messages) via [foundError], so that they appear in the
+/// failure summary at the end of the log. Reports the individual test cases to
+/// LUCI ResultDB (no-op off LUCI). Deletes [metricFile] afterwards.
+///
+/// No-op under `--dry-run`.
+Future<void> processFlutterTestResults({
+  required File metricFile,
+  required CommandResult result,
+  required String workingDirectory,
+  required bool expectFailure,
+}) async {
+  // metriciFile is a transitional file that needs to be deleted once it is parsed.
+  // TODO(godofredoc): Ensure metricFile is parsed and aggregated before deleting.
+  // https://github.com/flutter/flutter/issues/146003
+  if (dryRun) {
+    return;
+  }
+  if (metricFile.existsSync()) {
+    final test = TestFileReporterResults.fromFile(metricFile);
+    if (result.exitCode != 0 && !expectFailure) {
+      final List<String> failedTests = test.failedTestLines(workingDirectory: workingDirectory);
+      if (failedTests.isNotEmpty) {
+        foundError(failedTests);
+      }
+    }
+    // Parse the test results and report the individual test cases to LUCI
+    // ResultDB (no-op off LUCI) so `flutter test`-based shards populate the
+    // "Test Results" tab.
+    await reportTestResultsToResultDb(
+      test,
+      workingDirectory: workingDirectory,
+      expectFailure: expectFailure,
+    );
+  }
+  metricFile.deleteSync();
 }
 
 /// Reports the individual test cases in [test] to LUCI ResultDB so that they

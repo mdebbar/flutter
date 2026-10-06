@@ -29,6 +29,10 @@ Future<bool> runTests({
 
   var testCount = 0;
   var failures = 0;
+  // One entry per failure: `<test name>: <message>`, repeated at the end of the
+  // run so that the failing suites are visible in the tail of the log (which
+  // CI surfaces as the build summary).
+  final failureSummary = <String>[];
 
   if (verbose) {
     final s = files.length == 1 ? '' : 's';
@@ -63,6 +67,7 @@ Future<bool> runTests({
     void failure(String message) {
       print('ERROR: $message');
       failures += 1;
+      failureSummary.add('${path.basenameWithoutExtension(file.path)}: $message');
     }
 
     CustomerTest instructions;
@@ -172,7 +177,8 @@ Future<bool> runTests({
               success = await shell(testCommand, customerRepo, verbose: verbose);
               if (!success) {
                 failure(
-                  'One or more tests from ${path.basenameWithoutExtension(file.path)} failed.',
+                  'One or more tests from ${path.basenameWithoutExtension(file.path)} failed '
+                  '(command: $testCommand).',
                 );
                 break;
               }
@@ -205,7 +211,14 @@ Future<bool> runTests({
   }
   if (failures > 0) {
     final s = failures == 1 ? '' : 's';
-    print('$failures failure$s.');
+    // Same delimiters as `reportErrorsAndExit` in dev/bots/utils.dart; the CI
+    // recipe extracts these blocks for the LUCI build summary.
+    print('===== BEGIN FAILURE SUMMARY =====');
+    print('$failures customer test failure$s:');
+    for (final line in failureSummary) {
+      print('  $line');
+    }
+    print('===== END FAILURE SUMMARY =====');
     return false;
   }
   print('$testCount tests all passed!');

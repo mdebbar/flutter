@@ -398,6 +398,7 @@ class EngineExecutableTask():  # pylint: disable=too-many-instance-attributes
     # Don't propagate to the root logger to avoid double logging
     logger.propagate = False
 
+    _logger.info('[DEFLAKE] task_start cwd=%s cmd=%s', self.cwd, self)
     try:
       run_engine_executable(
           self.build_dir,
@@ -412,8 +413,10 @@ class EngineExecutableTask():  # pylint: disable=too-many-instance-attributes
           extra_env=self.extra_env,
           logger=logger,
       )
+      _logger.info('[DEFLAKE] task_end cwd=%s ok=1', self.cwd)
       return (None, log_capture_string.getvalue().splitlines())
     except Exception as exn:  # pylint: disable=broad-except
+      _logger.info('[DEFLAKE] task_end cwd=%s ok=0 err=%s', self.cwd, exn)
       return (exn, log_capture_string.getvalue().splitlines())
 
   def __str__(self) -> str:
@@ -1129,21 +1132,32 @@ def run_engine_tasks_in_parallel(tasks: typing.List[EngineExecutableTask]) -> bo
   queue_listener.start()
 
   failures = []
+  _logger.info('[DEFLAKE] pool_enter count=%d', len(tasks))
+  sys_stdout.flush()
   try:
     with multiprocessing.Pool(max_processes, worker_init,
                               [queue, _logger.getEffectiveLevel()]) as pool:
       async_results = [(t, pool.apply_async(t, ())) for t in tasks]
       for task, async_result in async_results:
         try:
-          exception, logs = async_result.get()
+          exception, logs = async_result.get(timeout=300)
           for line in logs:
             _logger.info(line)
           if exception is not None:
             failures += [(task, exception)]
         except Exception as exn:  # pylint: disable=broad-except
+          ps_out = subprocess.run(['ps', '-ef'], capture_output=True, text=True, check=False).stdout
+          _logger.error('[DEFLAKE] async_result.get failed task=%s exn=%r\nps:\n%s', task, exn, ps_out)
+          sys_stdout.flush()
           failures += [(task, exn)]
+      _logger.info('[DEFLAKE] pool_loop_done failures=%d', len(failures))
+      sys_stdout.flush()
+    _logger.info('[DEFLAKE] pool_with_exited')
+    sys_stdout.flush()
   finally:
     queue_listener.stop()
+    _logger.info('[DEFLAKE] queue_listener_stopped')
+    sys_stdout.flush()
 
   if len(failures) > 0:
     print_divider('<')

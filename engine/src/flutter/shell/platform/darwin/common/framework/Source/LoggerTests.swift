@@ -7,7 +7,7 @@ import Foundation
 import Testing
 @testable import test_utils_swift
 
-@Suite struct LoggerTests {
+@Suite(.serialized) struct LoggerTests {
 
   @Test func testInitialization() {
     let writer = StringOutputWriter()

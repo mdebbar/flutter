@@ -568,7 +568,6 @@ TEST_F(FlutterWindowControllerSizeTest, SizedToContentNotResizable) {
   double pixelRatio = [window backingScaleFactor];
   double initialWidth = window.frame.size.width;
   while (window.frame.size.width != 300 / pixelRatio &&
-         window.frame.size.width != 200 / pixelRatio &&
          CFAbsoluteTimeGetCurrent() - startTime < kTestTimeout) {
     CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, true);
   }
@@ -580,8 +579,9 @@ TEST_F(FlutterWindowControllerSizeTest, SizedToContentNotResizable) {
   EXPECT_EQ(contentRect.size.height, 300 / pixelRatio);
   EXPECT_TRUE((window.styleMask & NSWindowStyleMaskResizable) == 0);
 
-  // Wait until the second frame is rendered, which should resize the window based
-  // on new content.
+  // Trigger the second frame after verifying the initial size, which should resize the window
+  // based on new content.
+  [engine.binaryMessenger sendOnChannel:@"next_frame" message:nil];
   startTime = CFAbsoluteTimeGetCurrent();
   while (window.frame.size.width == 300 / pixelRatio &&
          CFAbsoluteTimeGetCurrent() - startTime < kTestTimeout) {

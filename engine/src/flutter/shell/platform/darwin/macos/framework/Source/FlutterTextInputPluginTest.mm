@@ -51,7 +51,7 @@
 @implementation TextInputTestViewController
 - (nonnull FlutterView*)createFlutterViewWithMTLDevice:(id<MTLDevice>)device
                                           commandQueue:(id<MTLCommandQueue>)commandQueue {
-  id mock = OCMClassMock([NSView class]);
+  id mock = OCMPartialMock([[NSView alloc] initWithFrame:NSZeroRect]);
   fprintf(stderr,
           "[DEFLAKE] createFlutterViewWithMTLDevice os=%s mock=%p malloc_sz=%zu cls_sz=%zu "
           "nsview_sz=%zu heap_ok=%d\n",
@@ -960,7 +960,6 @@ static const FlutterViewIdentifier kViewId = 1;
       [[TextInputTestViewController alloc] initWithEngine:engineMock nibName:nil bundle:nil];
   [controllerMock loadView];
   id viewMock = controllerMock.flutterView;
-  fprintf(stderr, "[DEFLAKE] after loadView heap_ok=%d\n", malloc_zone_check(nullptr));
   OCMStub(  // NOLINT(google-objc-avoid-throwing-exception)
       [viewMock bounds])
       .andReturn(NSMakeRect(0, 0, 200, 200));

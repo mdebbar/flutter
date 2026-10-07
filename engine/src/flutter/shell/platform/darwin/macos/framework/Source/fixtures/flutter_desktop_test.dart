@@ -124,9 +124,9 @@ void testRenderSizedToContentResizable() {
 @pragma('vm:entry-point')
 // Used in FlutterWindowControllerSizeTest.SizedToContentNotResizable
 void testRenderSizedToContent() {
-  var frameCount = 0;
+  var renderSecondSize = false;
   PlatformDispatcher.instance.onBeginFrame = (Duration duration) {
-    final size = frameCount == 0 ? const Size(300, 300) : const Size(200, 200);
+    final size = renderSecondSize ? const Size(200, 200) : const Size(300, 300);
     final baseRecorder = PictureRecorder();
     final canvas = Canvas(baseRecorder);
     final blackPaint = Paint()..color = const Color(0xFF000000);
@@ -135,11 +135,14 @@ void testRenderSizedToContent() {
     final builder = SceneBuilder();
     builder.addPicture(Offset.zero, picture);
     PlatformDispatcher.instance.views.last.render(builder.build(), size: size);
-    ++frameCount;
-    if (frameCount == 1) {
-      PlatformDispatcher.instance.scheduleFrame();
-    }
   };
+  PlatformDispatcher.instance.onPlatformMessage =
+      (String name, ByteData? data, PlatformMessageResponseCallback? callback) {
+        if (name == 'next_frame') {
+          renderSecondSize = true;
+          PlatformDispatcher.instance.scheduleFrame();
+        }
+      };
 
   signalNativeTest();
 }

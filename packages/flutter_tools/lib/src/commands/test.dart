@@ -29,8 +29,6 @@ import '../test/runner.dart';
 import '../test/test_time_recorder.dart';
 import '../test/test_wrapper.dart';
 import '../test/watcher.dart';
-import '../web/compile.dart';
-import '../web/web_constants.dart';
 
 /// The name of the directory where Integration Tests are placed.
 ///
@@ -305,7 +303,9 @@ class TestCommand extends FlutterCommand with DeviceBasedDevelopmentArtifacts {
       )
       ..addFlag(
         FlutterOptions.kWebWasmFlag,
-        help: 'Compile to WebAssembly rather than JavaScript.\n$kWasmMoreInfo',
+        help:
+            'Compile to WebAssembly rather than JavaScript.\n'
+            'See https://flutter.dev/to/wasm for more information.',
         negatable: false,
       )
       ..addFlag(
@@ -425,11 +425,19 @@ class TestCommand extends FlutterCommand with DeviceBasedDevelopmentArtifacts {
   }
 
   // Keep in sync with the [RunCommandBase.webRenderer] getter.
-  WebRendererMode get webRenderer {
+  String get webRenderer {
     final List<String> dartDefines = extractDartDefines(
       defineConfigJsonMap: extractDartDefineConfigJsonMap(),
     );
-    return WebRendererMode.fromDartDefines(dartDefines, useWasm: useWasm);
+    if (dartDefines.contains('FLUTTER_WEB_USE_SKIA=false') &&
+        dartDefines.contains('FLUTTER_WEB_USE_SKWASM=true')) {
+      return 'skwasm';
+    }
+    if (dartDefines.contains('FLUTTER_WEB_USE_SKIA=true') &&
+        dartDefines.contains('FLUTTER_WEB_USE_SKWASM=false')) {
+      return 'canvaskit';
+    }
+    return useWasm ? 'skwasm' : 'canvaskit';
   }
 
   @override
@@ -652,7 +660,7 @@ class TestCommand extends FlutterCommand with DeviceBasedDevelopmentArtifacts {
       throwToolExit('--wasm is only supported on the web platform');
     }
 
-    if (webRenderer == WebRendererMode.skwasm && !useWasm) {
+    if (webRenderer == 'skwasm' && !useWasm) {
       throwToolExit('Skwasm renderer requires --wasm');
     }
 

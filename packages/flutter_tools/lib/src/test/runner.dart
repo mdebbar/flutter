@@ -11,7 +11,6 @@ import '../base/config.dart';
 import '../base/file_system.dart';
 import '../base/io.dart';
 import '../base/logger.dart';
-import '../base/os.dart';
 import '../base/platform.dart';
 import '../base/process.dart';
 import '../base/terminal.dart';
@@ -23,16 +22,12 @@ import '../convert.dart';
 import '../device.dart';
 import '../native_assets.dart';
 import '../project.dart';
-import '../web/chrome.dart';
-import '../web/memory_fs.dart';
 import 'flutter_platform.dart' as loader;
-import 'flutter_web_platform.dart';
 import 'font_config_manager.dart';
 import 'test_config.dart';
 import 'test_time_recorder.dart';
 import 'test_wrapper.dart';
 import 'watcher.dart';
-import 'web_test_compiler.dart';
 
 /// Launching the `flutter_tester` process from the test runner.
 interface class FlutterTestRunner {
@@ -81,9 +76,6 @@ interface class FlutterTestRunner {
       :Artifacts artifacts,
       :FileSystem fs,
       :Logger logger,
-      :OperatingSystemUtils os,
-      :Platform platform,
-      :ProcessManager processManager,
       :AnsiTerminal terminal,
     ) = _toolContext;
 
@@ -113,53 +105,7 @@ interface class FlutterTestRunner {
     ];
 
     if (web) {
-      // Unsupported for general Flutter developers.
-      // This is only used by the Flutter Framework tests.
-      // See: https://github.com/flutter/flutter/pull/65984.
-      final String tempBuildDir = fs.systemTempDirectory
-          .createTempSync('flutter_test.')
-          .absolute
-          .uri
-          .toFilePath();
-      final WebMemoryFS result = await WebTestCompiler(toolContext: _toolContext).initialize(
-        projectDirectory: flutterProject!.directory,
-        testOutputDir: tempBuildDir,
-        testFiles: testFiles.map((Uri uri) => uri.toFilePath()).toList(),
-        buildInfo: debuggingOptions.buildInfo,
-        webRenderer: debuggingOptions.webRenderer,
-        useWasm: debuggingOptions.webUseWasm,
-      );
-      testArgs
-        ..add('--platform=chrome')
-        ..add('--')
-        ..addAll(testFiles.map((Uri uri) => uri.toString()));
-      testWrapper.registerPlatformPlugin(<Runtime>[Runtime.chrome], () {
-        return FlutterWebPlatform.start(
-          flutterProject.directory.path,
-          buildDirectory: fs.directory(tempBuildDir),
-          buildInfo: debuggingOptions.buildInfo,
-          chromiumLauncher: ChromiumLauncher(
-            fileSystem: fs,
-            platform: platform,
-            processManager: processManager,
-            operatingSystemUtils: os,
-            browserFinder: findChromeExecutable,
-            logger: logger,
-          ),
-          crossOriginIsolation: debuggingOptions.webCrossOriginIsolation,
-          flutterProject: flutterProject,
-          flutterTesterBinPath: flutterTesterBinPath,
-          toolContext: _toolContext,
-          useWasm: debuggingOptions.webUseWasm,
-          webMemoryFS: result,
-          webRenderer: debuggingOptions.webRenderer,
-          pauseAfterLoad: debuggingOptions.startPaused,
-          testTimeRecorder: testTimeRecorder,
-          updateGoldens: updateGoldens,
-        );
-      });
-      await testWrapper.main(testArgs);
-      return exitCode;
+      throwToolExit('Web tests are handled by the web platform extension.');
     }
 
     testArgs

@@ -24,13 +24,10 @@ import '../dart/package_map.dart';
 import '../device.dart';
 import '../drive/drive_service.dart';
 import '../drive/import_validator.dart';
-import '../drive/web_driver_service.dart' show Browser;
 import '../ios/devices.dart';
 import '../resident_runner.dart';
 import '../runner/flutter_command.dart'
     show FlutterCommandCategory, FlutterCommandResult, FlutterOptions;
-import '../web/devfs_config.dart';
-import '../web/web_device.dart';
 import 'run.dart';
 
 /// Runs integration (a.k.a. end-to-end) tests.
@@ -335,13 +332,8 @@ class DriveCommand extends RunCommandBase {
       logger.printError('Screenshot not supported for ${device.displayName}.');
     }
 
-    final WebDevServerConfig? webDevServerConfig =
-        // TODO(kevmoo): Not sure why we're not just checking `WebDevice` here
-        (device is WebServerDevice || device is ChromiumDevice)
-        ? await webDevServerConfigCore()
-        : null;
-
-    final web = webDevServerConfig != null;
+    final web = device.platformType == PlatformType.web;
+    final Map<String, Object?>? webDevServerConfig = web ? await webDevServerConfigCore() : null;
 
     _flutterDriverFactory ??= FlutterDriverFactory(
       analytics: analytics,

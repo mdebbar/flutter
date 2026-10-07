@@ -26,13 +26,12 @@ import '../context/tool_context.dart';
 import '../convert.dart';
 import '../dart/analysis.dart';
 import '../device.dart';
+import '../experimental/extension_resident_runner.dart';
 import '../features.dart';
-import '../isolated/resident_web_runner.dart';
 import '../migrations/widget_preview_gitignore_migration.dart';
 import '../project.dart';
 import '../resident_runner.dart';
 import '../runner/flutter_command.dart';
-import '../web/web_device.dart';
 import '../widget_preview/analytics.dart';
 import '../widget_preview/dependency_graph.dart';
 import '../widget_preview/dtd_services.dart';
@@ -586,15 +585,7 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
         }
         final Device device;
         if (boolArg(kWebServer)) {
-          final List<Device> devices;
-          try {
-            // The web-server device is hidden by default, make it visible before trying to look it up.
-            WebServerDevice.showWebServerDevice = true;
-            devices = await deviceManager!.getDevicesById(WebServerDevice.kWebServerDeviceId);
-          } finally {
-            // Reset the flag to false to avoid affecting other commands.
-            WebServerDevice.showWebServerDevice = false;
-          }
+          final List<Device> devices = await deviceManager!.getDevicesById('web-server');
           assert(devices.length == 1);
           device = devices.single;
         } else {
@@ -615,8 +606,7 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
           }
           if (devices.length > 1) {
             // Prefer Google Chrome as the target browser.
-            device =
-                devices.firstWhereOrNull((device) => device is GoogleChromeDevice) ?? devices.first;
+            device = devices.firstWhereOrNull((device) => device.id == 'chrome') ?? devices.first;
 
             logger.printTrace(
               'Detected ${devices.length} web devices (${devices.map((e) => e.displayName).join(', ')}). '
@@ -670,18 +660,10 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
                   flutterProject: widgetPreviewScaffoldProject,
                   projectRootPath: widgetPreviewScaffoldProject.directory.absolute.path,
                 )
-              : ResidentWebRunner(
-                  flutterDevice,
+              : ExtensionResidentRunner(
+                  <FlutterDevice>[flutterDevice],
                   target: target,
                   debuggingOptions: debuggingOptions,
-                  analytics: analytics,
-                  flutterProject: widgetPreviewScaffoldProject,
-                  fileSystem: fs,
-                  logger: logger,
-                  terminal: terminal,
-                  platform: platform,
-                  outputPreferences: toolContext.outputPreferences,
-                  systemClock: toolContext.systemClock,
                   // Explicitly provide the project root path rather than relying on the current directory
                   // as the current directory exists within $TMP. At least on MacOS, when setting the
                   // current directory to the widget_preview_scaffold project created under
@@ -699,8 +681,14 @@ final class WidgetPreviewStartCommand extends WidgetPreviewSubCommandBase with C
             ),
           );
           await appStarted.future;
-          logger.sendStartedEvent(applicationUrl: flutterDevice.devFS!.baseUri!);
           final DebugConnectionInfo debugConnection = await connectionInfo.future;
+          logger.sendStartedEvent(
+            applicationUrl:
+                flutterDevice.devFS?.baseUri ??
+                (debugConnection.baseUri != null
+                    ? Uri.parse(debugConnection.baseUri!)
+                    : Uri.parse('http://localhost')),
+          );
           final Uri? devToolsUri = devToolsServerAddress ?? debugConnection.devToolsUri;
           if (devToolsUri == null) {
             throwToolExit('Could not determine DevTools server address for the widget inspector.');

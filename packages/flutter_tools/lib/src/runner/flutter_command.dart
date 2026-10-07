@@ -37,7 +37,6 @@ import '../pre_run_validator.dart';
 import '../project.dart';
 import '../reporting/unified_analytics.dart';
 import '../version.dart';
-import '../web/web_options.dart';
 import 'flutter_command_runner.dart';
 import 'options/common_options.dart';
 import 'options/option_bundle.dart';
@@ -263,6 +262,11 @@ abstract class FlutterCommand extends Command<void> {
     flutterDartVersionDefine,
   ];
 
+  /// Hook called by the command runner before parsing arguments,
+  /// allowing the command to perform asynchronous initialization
+  /// (e.g. querying extensions) to populate its dynamic options or subcommands.
+  Future<void> initializeDynamicOptions() async {}
+
   @override
   ArgParser get argParser => _argParser ??= ArgParser(usageLineLength: _usageLineLength);
   ArgParser? _argParser;
@@ -344,34 +348,127 @@ abstract class FlutterCommand extends Command<void> {
   }
 
   void usesWebOptions({required bool verboseHelp}) {
-    argParser.addDescriptors(const <OptionDescriptor<Object?>>[
-      WebOptions.webHeader,
-      WebOptions.webHostname,
-      WebOptions.webPort,
-      WebOptions.webTlsCertPath,
-      WebOptions.webTlsCertKeyPath,
-      WebOptions.webServerDebugProtocol,
-      WebOptions.webServerDebugBackendProtocol,
-      WebOptions.webServerDebugInjectedClientProtocol,
-      WebOptions.webAllowExposeUrl,
-      WebOptions.webRunHeadless,
-      WebOptions.webBrowserDebugPort,
-      WebOptions.webEnableExpressionEvaluation,
-      WebOptions.webLaunchUrl,
-      WebOptions.webBrowserFlags,
-      WebOptions.crossOriginIsolation,
-    ], verboseHelp: verboseHelp);
+    argParser
+      ..addMultiOption(
+        'web-header',
+        splitCommas: false,
+        hide: !verboseHelp,
+        help:
+            'Additional key-value pairs that will added by the web server '
+            'as headers to all responses. Multiple headers can be passed by '
+            'repeating "--web-header" multiple times.',
+        valueHelp: 'X-Custom-Header=header-value',
+      )
+      ..addOption(
+        'web-hostname',
+        hide: !verboseHelp,
+        help:
+            'The hostname that the web server will use to resolve an IP to serve '
+            'from. The unresolved hostname is used to launch Chrome when using '
+            'the chrome Device. The name "any" may also be used to serve on any '
+            'IPV4 for either the Chrome or web-server device.',
+      )
+      ..addOption(
+        'web-port',
+        hide: !verboseHelp,
+        help:
+            'The host port to serve the web application from. If not provided, the tool '
+            'will select a random open port on the host.',
+      )
+      ..addOption(
+        'web-tls-cert-path',
+        help:
+            'The certificate that host will use to serve using TLS connection. '
+            'If not provided, the tool will use default http scheme.',
+      )
+      ..addOption(
+        'web-tls-cert-key-path',
+        help:
+            'The certificate key that host will use to authenticate cert. '
+            'If not provided, the tool will use default http scheme.',
+      )
+      ..addOption(
+        'web-server-debug-protocol',
+        allowed: const <String>['sse', 'ws'],
+        defaultsTo: 'ws',
+        hide: !verboseHelp,
+      )
+      ..addOption(
+        'web-server-debug-backend-protocol',
+        allowed: const <String>['sse', 'ws'],
+        defaultsTo: 'ws',
+        hide: !verboseHelp,
+      )
+      ..addOption(
+        'web-server-debug-injected-client-protocol',
+        allowed: const <String>['sse', 'ws'],
+        defaultsTo: 'ws',
+        hide: !verboseHelp,
+      )
+      ..addFlag(
+        'web-allow-expose-url',
+        hide: !verboseHelp,
+        help:
+            'Enables daemon-to-editor requests (app.exposeUrl) for exposing URLs '
+            'when running on remote machines.',
+      )
+      ..addFlag(
+        'web-run-headless',
+        hide: !verboseHelp,
+        help:
+            'Launches the browser in headless mode. Currently only Chrome '
+            'supports this option.',
+      )
+      ..addOption(
+        'web-browser-debug-port',
+        hide: !verboseHelp,
+        help:
+            'The debug port the browser should use. If not specified, a '
+            'random port is selected. Currently only Chrome supports this option. '
+            'It serves the Chrome DevTools Protocol '
+            '(https://chromedevtools.github.io/devtools-protocol/).',
+      )
+      ..addFlag(
+        'web-enable-expression-evaluation',
+        defaultsTo: true,
+        hide: !verboseHelp,
+        help: 'Enables expression evaluation in the debugger.',
+      )
+      ..addOption(
+        'web-launch-url',
+        help:
+            'The URL to provide to the browser. Defaults to an HTTP URL with the host '
+            'name of "--web-hostname", the port of "--web-port", and the path set to "/".',
+      )
+      ..addMultiOption(
+        FlutterOptions.kWebBrowserFlag,
+        valueHelp: '--foo=bar',
+        hide: !verboseHelp,
+        help:
+            'Additional flag to pass to a browser instance at startup.\n'
+            'Chrome: https://www.chromium.org/developers/how-tos/run-chromium-with-flags/\n'
+            'Firefox: https://wiki.mozilla.org/Firefox/CommandLineOptions\n'
+            'Multiple flags can be passed by repeating "--web-browser-flag" multiple times.',
+      )
+      ..addFlag('cross-origin-isolation', hide: !verboseHelp);
     usesBaseHrefOption();
   }
 
   void usesBaseHrefOption() {
-    argParser.addDescriptor(WebOptions.baseHref);
+    argParser.addOption(
+      'base-href',
+      help:
+          'Overrides the href attribute of the <base> tag in web/index.html. '
+          'No change is done to web/index.html if this flag is not provided. '
+          'The value has to start and end with a slash "/". '
+          'For more information: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base',
+    );
   }
 
   /// Adds the `--[no-]deprecated-js-interop` flag, which is forwarded to the
   /// web compilers through [BuildInfo.deprecatedJsInterop].
   void usesDeprecatedJsInteropFlag({required bool verboseHelp}) {
-    argParser.addDescriptor(WebOptions.deprecatedJsInterop, verboseHelp: verboseHelp);
+    argParser.addFlag('deprecated-js-interop', hide: !verboseHelp);
   }
 
   void usesTargetOption() {
@@ -1109,7 +1206,9 @@ abstract class FlutterCommand extends Command<void> {
     final Map<String, Object?> defineConfigJsonMap = extractDartDefineConfigJsonMap();
     final List<String> dartDefines = extractDartDefines(defineConfigJsonMap: defineConfigJsonMap);
 
-    final bool useCdn = getValue(WebOptions.webResourcesCdn);
+    final bool useCdn =
+        !argParser.options.containsKey(FlutterOptions.kWebResourcesCdnFlag) ||
+        boolArg(FlutterOptions.kWebResourcesCdnFlag);
     var useLocalWebSdk = false;
     if (globalResults?.wasParsed(FlutterGlobalOptions.kLocalWebSDKOption) ?? false) {
       useLocalWebSdk = stringArg(FlutterGlobalOptions.kLocalWebSDKOption, global: true) != null;
@@ -1166,7 +1265,11 @@ abstract class FlutterCommand extends Command<void> {
       assumeInitializeFromDillUpToDate: getValue(BuildInfoOptions.assumeInitializeFromDillUpToDate),
       useLocalCanvasKit: useLocalCanvasKit,
       webEnableHotReload: true,
-      deprecatedJsInterop: getValue(WebOptions.deprecatedJsInterop),
+      deprecatedJsInterop:
+          argParser.options.containsKey('deprecated-js-interop') &&
+              (argResults?.wasParsed('deprecated-js-interop') ?? false)
+          ? boolArg('deprecated-js-interop')
+          : null,
     );
   }
 

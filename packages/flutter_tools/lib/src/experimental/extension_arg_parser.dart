@@ -28,6 +28,7 @@ mixin ExtensionArgParserMixin on FlutterCommand {
   /// Hook called by the command runner before parsing arguments,
   /// allowing the command to perform asynchronous initialization
   /// (e.g. querying extensions) to populate its dynamic options.
+  @override
   Future<void> initializeDynamicOptions() async {}
 
   /// Creates and configures the static base `ArgParser` for this command.

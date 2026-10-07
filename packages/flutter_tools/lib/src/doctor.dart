@@ -39,9 +39,6 @@ import 'macos/xcode_validator.dart';
 import 'proxy_validator.dart';
 import 'tester/flutter_tester.dart';
 import 'version.dart';
-import 'web/chrome.dart';
-import 'web/web_validator.dart';
-import 'web/workflow.dart';
 import 'windows/visual_studio_validator.dart';
 import 'windows/windows_version_validator.dart';
 import 'windows/windows_workflow.dart';
@@ -106,8 +103,6 @@ class _DefaultDoctorValidatorsProvider implements DoctorValidatorsProvider {
 
   late final linuxWorkflow = LinuxWorkflow(platform: platform, featureFlags: featureFlags);
 
-  late final webWorkflow = WebWorkflow(platform: platform, featureFlags: featureFlags);
-
   late final macOSWorkflow = MacOSWorkflow(platform: platform, featureFlags: featureFlags);
 
   late final customDeviceWorkflow = CustomDeviceWorkflow(featureFlags: featureFlags);
@@ -151,18 +146,6 @@ class _DefaultDoctorValidatorsProvider implements DoctorValidatorsProvider {
           ),
           globals.cocoapodsValidator!,
         ]),
-      if (webWorkflow.appliesToHostPlatform)
-        ChromeValidator(
-          chromiumLauncher: ChromiumLauncher(
-            browserFinder: findChromeExecutable,
-            fileSystem: globals.fs,
-            operatingSystemUtils: globals.os,
-            platform: globals.platform,
-            processManager: globals.processManager,
-            logger: globals.logger,
-          ),
-          platform: globals.platform,
-        ),
       if (linuxWorkflow.appliesToHostPlatform)
         LinuxDoctorValidator(
           processManager: globals.processManager,
@@ -191,7 +174,6 @@ class _DefaultDoctorValidatorsProvider implements DoctorValidatorsProvider {
       if (linuxWorkflow.appliesToHostPlatform) linuxWorkflow,
       if (macOSWorkflow.appliesToHostPlatform) macOSWorkflow,
       if (windowsWorkflow?.appliesToHostPlatform ?? false) windowsWorkflow!,
-      if (webWorkflow.appliesToHostPlatform) webWorkflow,
       if (customDeviceWorkflow.appliesToHostPlatform) customDeviceWorkflow,
     ];
   }

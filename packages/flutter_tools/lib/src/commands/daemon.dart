@@ -29,6 +29,8 @@ import '../device.dart';
 import '../device_port_forwarder.dart';
 import '../device_vm_service_discovery_for_attach.dart';
 import '../emulator.dart';
+import '../experimental/extension_device_manager.dart';
+import '../experimental/extension_resident_runner.dart';
 import '../features.dart';
 import '../project.dart';
 import '../proxied_devices/debounce_data_stream.dart';
@@ -38,7 +40,6 @@ import '../run_cold.dart';
 import '../run_hot.dart';
 import '../runner/flutter_command.dart';
 import '../vmservice.dart';
-import '../web/web_runner.dart';
 
 const protocolVersion = '0.6.1';
 
@@ -835,9 +836,6 @@ class AppDomain extends Domain {
     // We change the current working directory for the duration of the `start` command.
     final Directory cwd = _fs.currentDirectory;
     _fs.currentDirectory = _fs.directory(projectDirectory);
-    final FlutterProject flutterProject = _toolContext.projectFactory.fromDirectory(
-      _fs.currentDirectory,
-    );
 
     final FlutterDevice flutterDevice = await FlutterDevice.create(
       device,
@@ -849,18 +847,13 @@ class AppDomain extends Domain {
 
     ResidentRunner runner;
 
-    if (await device.targetPlatform == TargetPlatform.web_javascript) {
-      runner = webRunnerFactory!.createWebRunner(
-        flutterDevice,
-        flutterProject: flutterProject,
+    if (device is ExtensionBackedDevice) {
+      runner = ExtensionResidentRunner(
+        <FlutterDevice>[flutterDevice],
         target: target,
         debuggingOptions: options,
-        stayResident: true,
-        urlTunneller: options.webEnableExposeUrl! ? daemon.daemonDomain.exposeUrl : null,
+        projectRootPath: projectRootPath,
         machine: machine,
-        analytics: _analytics,
-        toolContext: _toolContext,
-        webDefines: webDefines,
       );
     } else if (enableHotReload) {
       runner = HotRunner(

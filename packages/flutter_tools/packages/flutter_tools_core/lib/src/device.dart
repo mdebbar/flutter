@@ -158,3 +158,119 @@ class TargetDevice {
   int get hashCode =>
       Object.hash(category, id, name, ephemeral, isSupported, sdkNameAndVersion, targetPlatform);
 }
+
+/// Result of launching an application on a target device via a tool extension.
+@immutable
+class ExtensionLaunchResult {
+  /// Creates an [ExtensionLaunchResult].
+  const ExtensionLaunchResult({
+    required this.succeeded,
+    this.vmServiceUri,
+    this.appUrl,
+    this.errorMessage,
+  });
+
+  /// Deserializes an [ExtensionLaunchResult] from a JSON-serializable map.
+  factory ExtensionLaunchResult.fromJson(Map<String, Object?> json) {
+    return ExtensionLaunchResult(
+      succeeded: json[succeededKey] as bool? ?? false,
+      vmServiceUri: json[vmServiceUriKey] as String?,
+      appUrl: json[appUrlKey] as String?,
+      errorMessage: json[errorMessageKey] as String?,
+    );
+  }
+
+  /// Map key for [succeeded].
+  static const String succeededKey = 'succeeded';
+
+  /// Map key for [vmServiceUri].
+  static const String vmServiceUriKey = 'vmServiceUri';
+
+  /// Map key for [appUrl].
+  static const String appUrlKey = 'appUrl';
+
+  /// Map key for [errorMessage].
+  static const String errorMessageKey = 'errorMessage';
+
+  /// Whether the application launch succeeded.
+  final bool succeeded;
+
+  /// Optional VM service URI string if available.
+  final String? vmServiceUri;
+
+  /// Optional application URL (e.g. for web server / browser launches).
+  final String? appUrl;
+
+  /// Optional error message when [succeeded] is `false`.
+  final String? errorMessage;
+
+  /// Serializes the launch result to a JSON-serializable map.
+  Map<String, Object?> toMap() => <String, Object?>{
+    succeededKey: succeeded,
+    vmServiceUriKey: ?vmServiceUri,
+    appUrlKey: ?appUrl,
+    errorMessageKey: ?errorMessage,
+  };
+
+  @override
+  String toString() =>
+      'ExtensionLaunchResult(succeeded: $succeeded, vmServiceUri: $vmServiceUri, '
+      'appUrl: $appUrl, errorMessage: $errorMessage)';
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other is ExtensionLaunchResult &&
+            other.succeeded == succeeded &&
+            other.vmServiceUri == vmServiceUri &&
+            other.appUrl == appUrl &&
+            other.errorMessage == errorMessage);
+  }
+
+  @override
+  int get hashCode => Object.hash(succeeded, vmServiceUri, appUrl, errorMessage);
+}
+
+/// Result of reloading or restarting a running application via a tool extension.
+@immutable
+class ExtensionReloadResult {
+  /// Creates an [ExtensionReloadResult].
+  const ExtensionReloadResult({required this.succeeded, this.message});
+
+  /// Deserializes an [ExtensionReloadResult] from a JSON-serializable map.
+  factory ExtensionReloadResult.fromJson(Map<String, Object?> json) {
+    return ExtensionReloadResult(
+      succeeded: json[succeededKey] as bool? ?? false,
+      message: json[messageKey] as String?,
+    );
+  }
+
+  /// Map key for [succeeded].
+  static const String succeededKey = 'succeeded';
+
+  /// Map key for [message].
+  static const String messageKey = 'message';
+
+  /// Whether the reload or restart succeeded.
+  final bool succeeded;
+
+  /// Optional status or error message.
+  final String? message;
+
+  /// Serializes the reload result to a JSON-serializable map.
+  Map<String, Object?> toMap() => <String, Object?>{succeededKey: succeeded, messageKey: ?message};
+
+  @override
+  String toString() => 'ExtensionReloadResult(succeeded: $succeeded, message: $message)';
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other is ExtensionReloadResult &&
+            other.succeeded == succeeded &&
+            other.message == message);
+  }
+
+  @override
+  int get hashCode => Object.hash(succeeded, message);
+}

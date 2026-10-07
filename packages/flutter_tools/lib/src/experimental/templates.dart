@@ -118,6 +118,21 @@ base class ExtensionTemplateManager extends TemplateService {
       );
       return _fileSystem.directory(absolutePath);
     }
+    if (templatePath.startsWith('package:flutter_tools_extension_web_prototype/')) {
+      final String relativePath = templatePath.substring(
+        'package:flutter_tools_extension_web_prototype/'.length,
+      );
+      final String absolutePath = _fileSystem.path.join(
+        Cache.flutterRoot!,
+        'packages',
+        'flutter_tools',
+        'packages',
+        'flutter_tools_extension_web_prototype',
+        'lib',
+        relativePath,
+      );
+      return _fileSystem.directory(absolutePath);
+    }
     throw ArgumentError('Unsupported template path format: $templatePath');
   }
 

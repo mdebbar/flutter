@@ -4,6 +4,7 @@
 
 import 'package:args/args.dart';
 import 'package:flutter_tools_extension_linux_prototype/flutter_tools_extension_linux_prototype.dart';
+import 'package:flutter_tools_extension_web_prototype/flutter_tools_extension_web_prototype.dart';
 import 'package:meta/meta.dart';
 
 import 'runner.dart' as runner;
@@ -53,6 +54,7 @@ import 'src/commands/widget_preview.dart';
 import 'src/context/tool_context.dart';
 import 'src/context/tool_dependencies.dart';
 import 'src/devtools_launcher.dart';
+import 'src/experimental/extension_build_manager.dart';
 import 'src/experimental/extension_discovery.dart';
 import 'src/experimental/extension_manager.dart';
 import 'src/experimental/templates.dart';
@@ -63,14 +65,12 @@ import 'src/hook_runner.dart' show FlutterHookRunner;
 import 'src/isolated/build_targets.dart';
 import 'src/isolated/mustache_template.dart';
 import 'src/isolated/native_assets/test/native_assets.dart';
-import 'src/isolated/resident_web_runner.dart';
 import 'src/native_assets.dart';
 import 'src/pre_run_validator.dart';
 import 'src/project_validator.dart';
 import 'src/resident_runner.dart';
 import 'src/runner/flutter_command.dart';
 import 'src/runner/flutter_command_runner.dart';
-import 'src/web/web_runner.dart';
 
 /// Main entry point for commands.
 ///
@@ -121,22 +121,25 @@ Future<void> main(List<String> args) async {
         logger: toolDependencies.toolContext.logger,
         featureFlags: featureFlags,
       );
+      final buildManager = ExtensionBuildManager(
+        extensionManager: manager,
+        featureFlags: featureFlags,
+        logger: toolDependencies.toolContext.logger,
+      );
       return generateCommands(
         toolDependencies: toolDependencies,
         verboseHelp: verboseHelp,
         verbose: verbose,
         extensionTemplateManager: templateManager,
+        extensionBuildManager: buildManager,
       );
     },
-    extensionEntryPoints: <ExtensionEntryPoint>[linuxExtensionEntryPoint],
+    extensionEntryPoints: <ExtensionEntryPoint>[linuxExtensionEntryPoint, webExtensionEntryPoint],
     verbose: verbose,
     muteCommandLogging: muteCommandLogging,
     verboseHelp: verboseHelp,
     overrides: <Type, Generator>{
       FlutterHookRunner: () => FlutterHookRunnerNative(),
-      // The web runner is not supported in google3 because it depends
-      // on dwds.
-      WebRunnerFactory: () => DwdsWebRunnerFactory(),
       // The mustache dependency is different in google3
       TemplateRenderer: () => const MustacheTemplateRenderer(),
       // The devtools launcher is not supported in google3 because it depends on
@@ -228,6 +231,7 @@ List<FlutterCommand> generateCommands({
   required bool verbose,
   required bool verboseHelp,
   ExtensionTemplateManager? extensionTemplateManager,
+  ExtensionBuildManager? extensionBuildManager,
 }) => <FlutterCommand>[
   AnalyzeCommand(
     allProjectValidators: <ProjectValidator>[
@@ -259,6 +263,7 @@ List<FlutterCommand> generateCommands({
     androidContext: toolDependencies.androidContext,
     appleContext: toolDependencies.appleContext,
     buildSystem: toolDependencies.buildSystem,
+    extensionBuildManager: extensionBuildManager,
     featureFlags: toolDependencies.featureFlags,
     templateRenderer: const MustacheTemplateRenderer(),
     toolContext: toolDependencies.toolContext,

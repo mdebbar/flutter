@@ -351,7 +351,9 @@ const toolExtensionsFeature = Feature(
   name: 'support for tool extensions',
   configSetting: 'enable-tool-extensions',
   environmentOverride: 'FLUTTER_TOOL_EXTENSIONS',
-  master: FeatureChannelSetting(available: true),
+  master: FeatureChannelSetting(available: true, enabledByDefault: true),
+  beta: FeatureChannelSetting(available: true, enabledByDefault: true),
+  stable: FeatureChannelSetting(available: true, enabledByDefault: true),
 );
 
 /// A [Feature] is a process for conditionally enabling tool features.

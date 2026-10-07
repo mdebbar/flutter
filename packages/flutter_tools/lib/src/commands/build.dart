@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'package:flutter_tools_core/flutter_tools_core.dart';
 import 'package:meta/meta.dart';
 import 'package:process/process.dart';
 
 import '../android/android_builder.dart';
 import '../android/gradle.dart';
 import '../artifacts.dart';
+import '../base/common.dart';
 import '../base/file_system.dart';
 import '../base/logger.dart';
 import '../base/os.dart';
@@ -18,6 +20,7 @@ import '../cache.dart';
 import '../context/android_context.dart';
 import '../context/apple_context.dart';
 import '../context/tool_context.dart';
+import '../experimental/extension_build_manager.dart';
 import '../features.dart';
 import '../macos/xcode.dart';
 import '../runner/flutter_command.dart';
@@ -33,7 +36,6 @@ import 'build_linux.dart';
 import 'build_macos.dart';
 import 'build_macos_framework.dart';
 import 'build_swift_package.dart';
-import 'build_web.dart';
 import 'build_windows.dart';
 import 'darwin_add_to_app.dart';
 
@@ -46,6 +48,7 @@ class BuildCommand extends FlutterCommand {
     required TemplateRenderer templateRenderer,
     required ToolContext toolContext,
     AndroidBuilder? androidBuilder,
+    this._extensionBuildManager,
     bool verboseHelp = false,
   }) : _appleContext = appleContext,
        super(toolContext: toolContext, verboseHelp: verboseHelp) {
@@ -161,14 +164,6 @@ class BuildCommand extends FlutterCommand {
       ),
     );
     _addSubcommand(
-      BuildWebCommand(
-        buildSystem: buildSystem,
-        featureFlags: featureFlags,
-        toolContext: toolContext,
-        verboseHelp: verboseHelp,
-      ),
-    );
-    _addSubcommand(
       BuildMacosCommand(
         buildSystem: buildSystem,
         featureFlags: featureFlags,
@@ -199,6 +194,29 @@ class BuildCommand extends FlutterCommand {
         ),
       ),
     );
+  }
+
+  final ExtensionBuildManager? _extensionBuildManager;
+
+  @override
+  Future<void> initializeDynamicOptions() async {
+    final ExtensionBuildManager? extensionBuildManager = _extensionBuildManager;
+    if (extensionBuildManager == null) {
+      return;
+    }
+    final List<ExtensionBuildTarget> targets = await extensionBuildManager.getBuildTargets();
+    for (final target in targets) {
+      if (!subcommands.containsKey(target.name)) {
+        _addSubcommand(
+          ExtensionBuildSubCommand(
+            buildManager: extensionBuildManager,
+            target: target,
+            toolContext: toolContext,
+            verboseHelp: verboseHelp,
+          ),
+        );
+      }
+    }
   }
 
   void _addSubcommand(BuildSubCommand command) {
@@ -245,4 +263,43 @@ abstract class BuildSubCommand extends FlutterCommand {
 
   /// Whether this command is supported and should be shown.
   bool get supported => true;
+}
+
+class ExtensionBuildSubCommand extends BuildSubCommand {
+  ExtensionBuildSubCommand({
+    required this._buildManager,
+    required this.target,
+    required ToolContext toolContext,
+    required super.verboseHelp,
+  }) : super(logger: toolContext.logger, toolContext: toolContext) {
+    usesTargetOption();
+    usesPubOption();
+    addBuildModeFlags(verboseHelp: verboseHelp);
+  }
+
+  final ExtensionBuildManager _buildManager;
+  final ExtensionBuildTarget target;
+
+  @override
+  ToolContext get toolContext => super.toolContext!;
+
+  @override
+  String get name => target.name;
+
+  @override
+  String get description => target.description;
+
+  @override
+  Future<FlutterCommandResult> runCommand() async {
+    final ExtensionBuildResult result = await _buildManager.build(
+      targetName: target.name,
+      projectRoot: toolContext.fs.currentDirectory.path,
+      mainPath: targetFile,
+      buildMode: (await getBuildInfo()).mode.name,
+    );
+    if (!result.success) {
+      throwToolExit(result.errorMessage ?? 'Extension build failed for ${target.name}.');
+    }
+    return FlutterCommandResult.success();
+  }
 }

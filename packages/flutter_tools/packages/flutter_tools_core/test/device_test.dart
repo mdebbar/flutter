@@ -89,4 +89,57 @@ void main() {
       expect(device1.hashCode, isNot(equals(device2.hashCode)));
     });
   });
+
+  group('ExtensionLaunchResult', () {
+    test('serializes and deserializes correctly with all fields', () {
+      const result = ExtensionLaunchResult(
+        succeeded: true,
+        vmServiceUri: 'ws://127.0.0.1:8181/ws',
+        appUrl: 'http://localhost:8080/',
+        errorMessage: 'none',
+      );
+
+      final Map<String, Object?> map = result.toMap();
+      expect(map['succeeded'], isTrue);
+      expect(map['vmServiceUri'], 'ws://127.0.0.1:8181/ws');
+      expect(map['appUrl'], 'http://localhost:8080/');
+      expect(map['errorMessage'], 'none');
+
+      final parsed = ExtensionLaunchResult.fromJson(map);
+      expect(parsed, equals(result));
+      expect(parsed.hashCode, equals(result.hashCode));
+      expect(parsed.toString(), contains('http://localhost:8080/'));
+    });
+
+    test('omits null optional fields in toMap', () {
+      const result = ExtensionLaunchResult(succeeded: false);
+      final Map<String, Object?> map = result.toMap();
+      expect(map['succeeded'], isFalse);
+      expect(map.containsKey('vmServiceUri'), isFalse);
+      expect(map.containsKey('appUrl'), isFalse);
+      expect(map.containsKey('errorMessage'), isFalse);
+    });
+  });
+
+  group('ExtensionReloadResult', () {
+    test('serializes and deserializes correctly', () {
+      const result = ExtensionReloadResult(succeeded: true, message: 'Reloaded web application.');
+
+      final Map<String, Object?> map = result.toMap();
+      expect(map['succeeded'], isTrue);
+      expect(map['message'], 'Reloaded web application.');
+
+      final parsed = ExtensionReloadResult.fromJson(map);
+      expect(parsed, equals(result));
+      expect(parsed.hashCode, equals(result.hashCode));
+      expect(parsed.toString(), contains('Reloaded web application.'));
+    });
+
+    test('omits null message in toMap', () {
+      const result = ExtensionReloadResult(succeeded: false);
+      final Map<String, Object?> map = result.toMap();
+      expect(map['succeeded'], isFalse);
+      expect(map.containsKey('message'), isFalse);
+    });
+  });
 }

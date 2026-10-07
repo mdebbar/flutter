@@ -16,6 +16,7 @@ import '../base/dds.dart';
 import '../base/logger.dart';
 import '../base/platform.dart';
 import '../base/process.dart';
+import '../base/utils.dart';
 import '../build_info.dart';
 import '../build_system/build_system.dart';
 import '../build_system/build_targets.dart';
@@ -23,23 +24,61 @@ import '../context/tool_context.dart';
 import '../device.dart';
 import '../resident_runner.dart';
 import '../vmservice.dart';
-import 'web_driver_service.dart';
+
+/// A list of supported browsers.
+enum Browser implements CliEnum {
+  /// Chrome on Android: https://developer.chrome.com/docs/multidevice/android/
+  androidChrome,
+
+  /// Chrome: https://www.google.com/chrome/
+  chrome,
+
+  /// Edge: https://www.microsoft.com/edge
+  edge,
+
+  /// Firefox: https://www.mozilla.org/en-US/firefox/
+  firefox,
+
+  /// Safari in iOS: https://www.apple.com/safari/
+  iosSafari,
+
+  /// Safari in macOS: https://www.apple.com/safari/
+  safari;
+
+  @override
+  String get helpText => switch (this) {
+    androidChrome => 'Chrome on Android (see also "--android-emulator").',
+    chrome => 'Google Chrome on this computer (see also "--chrome-binary").',
+    edge => 'Microsoft Edge on this computer (Windows only).',
+    firefox => 'Mozilla Firefox on this computer.',
+    iosSafari => 'Apple Safari on an iOS device.',
+    safari => 'Apple Safari on this computer (macOS only).',
+  };
+
+  @override
+  String get cliName => kebabCase(name);
+
+  static Browser fromCliName(String? value) => values.singleWhere(
+    (Browser element) => element.cliName == value,
+    orElse: () => throw UnsupportedError('Browser $value not supported'),
+  );
+}
 
 class FlutterDriverFactory {
   FlutterDriverFactory({
-    required this._analytics,
+    this.analytics,
     required this._applicationPackageFactory,
-    required this._buildSystem,
-    required this._buildTargets,
+    this.buildSystem,
+    this.buildTargets,
     required this._dartSdkPath,
     required this._devtoolsLauncher,
     required this._toolContext,
   });
 
-  final Analytics _analytics;
+  final Analytics? analytics;
+  final BuildSystem? buildSystem;
+  final BuildTargets? buildTargets;
   final ApplicationPackageFactory _applicationPackageFactory;
-  final BuildSystem _buildSystem;
-  final BuildTargets _buildTargets;
   final String _dartSdkPath;
   final DevtoolsLauncher _devtoolsLauncher;
   final ToolContext _toolContext;
@@ -47,13 +86,7 @@ class FlutterDriverFactory {
   /// Create a driver service for running `flutter drive`.
   DriverService createDriverService(bool web) {
     if (web) {
-      return WebDriverService(
-        analytics: _analytics,
-        buildSystem: _buildSystem,
-        buildTargets: _buildTargets,
-        dartSdkPath: _dartSdkPath,
-        toolContext: _toolContext,
-      );
+      throwToolExit('Web driver is now handled by the web tool extension.');
     }
     final ToolContext(:Logger logger, :Platform platform, :ProcessUtils processUtils) =
         _toolContext;

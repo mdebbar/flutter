@@ -29,7 +29,6 @@ import 'macos/xcdevice.dart';
 import 'native_assets.dart';
 import 'tester/flutter_tester.dart';
 import 'version.dart';
-import 'web/web_device.dart';
 import 'windows/windows_device.dart';
 import 'windows/windows_workflow.dart';
 
@@ -110,13 +109,6 @@ class FlutterDeviceManager extends DeviceManager {
            logger: logger,
            fileSystem: fileSystem,
            windowsWorkflow: windowsWorkflow,
-         ),
-         WebDevices(
-           featureFlags: featureFlags,
-           fileSystem: fileSystem,
-           platform: platform,
-           processManager: processManager,
-           logger: logger,
          ),
          CustomDevices(
            featureFlags: featureFlags,

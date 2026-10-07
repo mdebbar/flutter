@@ -24,16 +24,13 @@ import '../base/utils.dart';
 import '../cache.dart';
 import '../context/tool_context.dart';
 import '../convert.dart';
-import '../experimental/extension_arg_parser.dart';
 import '../features.dart';
 import '../globals.dart' as globals;
 import '../resident_runner.dart';
 import '../tester/flutter_tester.dart';
 import '../version.dart';
-import '../web/web_device.dart';
+import 'flutter_command.dart';
 import 'local_engine.dart';
-import 'options/common_options.dart';
-import 'options/option_descriptor.dart';
 
 /// Common flutter command line options.
 abstract final class FlutterGlobalOptions {
@@ -360,7 +357,7 @@ class FlutterCommandRunner extends CommandRunner<void> {
   }
 
   /// Traverses [args] to identify the target command being invoked and triggers
-  /// dynamic option initialization (via [ExtensionArgParserMixin.initializeDynamicOptions])
+  /// dynamic option initialization (via [FlutterCommand.initializeDynamicOptions])
   /// before argument parsing begins.
   Future<void> _initializeDynamicOptions(Iterable<String> args) async {
     if (_featureFlags?.isToolExtensionsEnabled != true) {
@@ -378,8 +375,8 @@ class FlutterCommandRunner extends CommandRunner<void> {
       }
       Command<void>? current = command;
       while (current != null) {
-        if (current case final ExtensionArgParserMixin dynamicCommand) {
-          await dynamicCommand.initializeDynamicOptions();
+        if (current case final FlutterCommand flutterCommand) {
+          await flutterCommand.initializeDynamicOptions();
         }
         current = current.parent;
       }
@@ -544,11 +541,6 @@ class FlutterCommandRunner extends CommandRunner<void> {
         topLevelResults[FlutterGlobalOptions.kDeviceIdOption] ==
             FlutterTesterDevices.kTesterDeviceId) {
       FlutterTesterDevices.showFlutterTesterDevice = true;
-    }
-    if (((topLevelResults[FlutterGlobalOptions.kShowWebServerDeviceFlag] as bool?) ?? false) ||
-        topLevelResults[FlutterGlobalOptions.kDeviceIdOption] ==
-            WebServerDevice.kWebServerDeviceId) {
-      WebServerDevice.showWebServerDevice = true;
     }
 
     // Set up the tooling configuration.

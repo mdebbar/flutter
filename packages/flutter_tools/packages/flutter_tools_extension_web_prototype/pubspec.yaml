@@ -1,0 +1,21 @@
+name: flutter_tools_extension_web_prototype
+description: Prototype Web platform extension package for Flutter tools extensibility.
+resolution: workspace
+
+environment:
+  sdk: ^3.13.0-0
+
+dependencies:
+  flutter_tools_core:
+    path: ../flutter_tools_core
+  flutter_tools_extension:
+    path: ../flutter_tools_extension
+  meta: 1.19.0
+  path: 1.9.1
+  process: 5.0.6
+  shelf: 1.4.2
+  shelf_static: 1.1.3
+  webkit_inspection_protocol: 1.2.1
+
+dev_dependencies:
+  test: 1.32.0

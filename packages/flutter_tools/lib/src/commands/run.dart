@@ -16,6 +16,8 @@ import '../base/file_system.dart';
 import '../base/io.dart';
 import '../build_info.dart';
 import '../device.dart';
+import '../experimental/extension_device_manager.dart';
+import '../experimental/extension_resident_runner.dart';
 import '../features.dart';
 import '../globals.dart' as globals;
 import '../hook_runner.dart' show hookRunner;
@@ -27,10 +29,6 @@ import '../run_hot.dart';
 import '../runner/flutter_command.dart';
 import '../runner/flutter_command_runner.dart';
 import '../tracing.dart';
-import '../web/compile.dart';
-import '../web/devfs_config.dart';
-import '../web/web_options.dart';
-import '../web/web_runner.dart';
 import 'daemon.dart';
 
 /// Shared logic between `flutter run` and `flutter drive` commands.
@@ -67,9 +65,13 @@ abstract class RunCommandBase extends FlutterCommand with DeviceBasedDevelopment
       DebuggingOptionDescriptors.skiaDeterministicRendering,
       DebuggingOptionDescriptors.dartEntrypointArgs,
       DebuggingOptionDescriptors.uninstallFirst,
-      WebOptions.wasm,
       DebuggingOptionDescriptors.iosProfileDebugger,
     ], verboseHelp: verboseHelp);
+    argParser.addFlag(
+      FlutterOptions.kWebWasmFlag,
+      negatable: false,
+      help: 'Compile to WebAssembly (with fallback to JavaScript).',
+    );
     usesWebOptions(verboseHelp: verboseHelp);
     usesDeprecatedJsInteropFlag(verboseHelp: verboseHelp);
     usesTargetOption();
@@ -122,30 +124,33 @@ abstract class RunCommandBase extends FlutterCommand with DeviceBasedDevelopment
 
   String? get traceAllowlist => getValue(DebuggingOptionDescriptors.traceAllowlist);
 
-  bool get useWasm => getValue(WebOptions.wasm);
+  bool get useWasm => boolArg(FlutterOptions.kWebWasmFlag);
 
-  // Keep in sync with the [TestCommand.webRenderer] getter.
-  WebRendererMode get webRenderer {
+  String get webRenderer {
     final List<String> dartDefines = extractDartDefines(
       defineConfigJsonMap: extractDartDefineConfigJsonMap(),
     );
-    return WebRendererMode.fromDartDefines(dartDefines, useWasm: useWasm);
+    if (dartDefines.contains('FLUTTER_WEB_RENDERER=skwasm')) {
+      return 'skwasm';
+    }
+    return useWasm ? 'skwasm' : 'canvaskit';
   }
 
   /// Create a debugging options instance for the current `run` or `drive` invocation.
   @visibleForTesting
   @protected
-  Future<DebuggingOptions> createDebuggingOptions({WebDevServerConfig? webDevServerConfig}) async {
+  Future<DebuggingOptions> createDebuggingOptions({Object? webDevServerConfig}) async {
     final BuildInfo buildInfo = await getBuildInfo();
-    final int? webBrowserDebugPort = featureFlags.isWebEnabled
-        ? getValue(WebOptions.webBrowserDebugPort)
+    final int? webBrowserDebugPort =
+        featureFlags.isWebEnabled && stringArg('web-browser-debug-port') != null
+        ? int.tryParse(stringArg('web-browser-debug-port')!)
         : null;
     final List<String> webBrowserFlags = featureFlags.isWebEnabled
-        ? getValue(WebOptions.webBrowserFlags)
+        ? stringsArg(FlutterOptions.kWebBrowserFlag)
         : const <String>[];
 
-    final bool? webCrossOriginIsolation = wasParsed(WebOptions.crossOriginIsolation)
-        ? getValue(WebOptions.crossOriginIsolation)
+    final bool? webCrossOriginIsolation = (argResults?.wasParsed('cross-origin-isolation') ?? false)
+        ? boolArg('cross-origin-isolation')
         : null;
     final bool? iosProfileDebugger = wasParsed(DebuggingOptionDescriptors.iosProfileDebugger)
         ? getValue(DebuggingOptionDescriptors.iosProfileDebugger)
@@ -155,15 +160,14 @@ abstract class RunCommandBase extends FlutterCommand with DeviceBasedDevelopment
         buildInfo,
         dartEntrypointArgs: getValue(DebuggingOptionDescriptors.dartEntrypointArgs),
         webUseSseForDebugProxy:
-            featureFlags.isWebEnabled && getValue(WebOptions.webServerDebugProtocol) == 'sse',
+            featureFlags.isWebEnabled && stringArg('web-server-debug-protocol') == 'sse',
         webUseSseForDebugBackend:
-            featureFlags.isWebEnabled &&
-            getValue(WebOptions.webServerDebugBackendProtocol) == 'sse',
+            featureFlags.isWebEnabled && stringArg('web-server-debug-backend-protocol') == 'sse',
         webUseSseForInjectedClient:
             featureFlags.isWebEnabled &&
-            getValue(WebOptions.webServerDebugInjectedClientProtocol) == 'sse',
-        webEnableExposeUrl: featureFlags.isWebEnabled && getValue(WebOptions.webAllowExposeUrl),
-        webRunHeadless: featureFlags.isWebEnabled && getValue(WebOptions.webRunHeadless),
+            stringArg('web-server-debug-injected-client-protocol') == 'sse',
+        webEnableExposeUrl: featureFlags.isWebEnabled && boolArg('web-allow-expose-url'),
+        webRunHeadless: featureFlags.isWebEnabled && boolArg('web-run-headless'),
         webBrowserDebugPort: webBrowserDebugPort,
         webBrowserFlags: webBrowserFlags,
         webCrossOriginIsolation: webCrossOriginIsolation,
@@ -220,20 +224,19 @@ abstract class RunCommandBase extends FlutterCommand with DeviceBasedDevelopment
         devToolsServerAddress: devToolsServerAddress,
         verboseSystemLogs: getValue(DebuggingOptionDescriptors.verboseSystemLogs),
         webUseSseForDebugProxy:
-            featureFlags.isWebEnabled && getValue(WebOptions.webServerDebugProtocol) == 'sse',
+            featureFlags.isWebEnabled && stringArg('web-server-debug-protocol') == 'sse',
         webUseSseForDebugBackend:
-            featureFlags.isWebEnabled &&
-            getValue(WebOptions.webServerDebugBackendProtocol) == 'sse',
+            featureFlags.isWebEnabled && stringArg('web-server-debug-backend-protocol') == 'sse',
         webUseSseForInjectedClient:
             featureFlags.isWebEnabled &&
-            getValue(WebOptions.webServerDebugInjectedClientProtocol) == 'sse',
-        webEnableExposeUrl: featureFlags.isWebEnabled && getValue(WebOptions.webAllowExposeUrl),
-        webRunHeadless: featureFlags.isWebEnabled && getValue(WebOptions.webRunHeadless),
+            stringArg('web-server-debug-injected-client-protocol') == 'sse',
+        webEnableExposeUrl: featureFlags.isWebEnabled && boolArg('web-allow-expose-url'),
+        webRunHeadless: featureFlags.isWebEnabled && boolArg('web-run-headless'),
         webBrowserDebugPort: webBrowserDebugPort,
         webBrowserFlags: webBrowserFlags,
         webEnableExpressionEvaluation:
-            featureFlags.isWebEnabled && getValue(WebOptions.webEnableExpressionEvaluation),
-        webLaunchUrl: featureFlags.isWebEnabled ? getValue(WebOptions.webLaunchUrl) : null,
+            featureFlags.isWebEnabled && boolArg('web-enable-expression-evaluation'),
+        webLaunchUrl: featureFlags.isWebEnabled ? stringArg('web-launch-url') : null,
         webCrossOriginIsolation: webCrossOriginIsolation,
         webRenderer: webRenderer,
         webUseWasm: useWasm,
@@ -259,21 +262,8 @@ abstract class RunCommandBase extends FlutterCommand with DeviceBasedDevelopment
     }
   }
 
-  Future<WebDevServerConfig> webDevServerConfigCore() async {
-    final WebDevServerConfig fileConfig = await WebDevServerConfig.loadFromFile(
-      fileSystem: globals.fs,
-      logger: globals.logger,
-    );
-
-    final int? webPort = getValue(WebOptions.webPort);
-
-    // Determine HTTPS config with CLI > file precedence
-    final HttpsConfig? httpsConfig = HttpsConfig.parse(
-      getValue(WebOptions.webTlsCertPath) ?? fileConfig.https?.certPath,
-      getValue(WebOptions.webTlsCertKeyPath) ?? fileConfig.https?.certKeyPath,
-    );
-
-    final String? baseHref = getValue(WebOptions.baseHref) ?? fileConfig.baseHref;
+  Future<Map<String, Object?>> webDevServerConfigCore() async {
+    final String? baseHref = stringArg('base-href');
     if (baseHref != null && !(baseHref.startsWith('/') && baseHref.endsWith('/'))) {
       throwToolExit(
         'Received a --base-href value of "$baseHref"\n'
@@ -281,14 +271,12 @@ abstract class RunCommandBase extends FlutterCommand with DeviceBasedDevelopment
       );
     }
 
-    final WebDevServerConfig webDevServerConfig = fileConfig.copyWith(
-      host: getValue(WebOptions.webHostname),
-      port: webPort,
-      https: httpsConfig,
-      headers: extractWebHeaders(),
-      baseHref: baseHref,
-    );
-    return webDevServerConfig;
+    return <String, Object?>{
+      'host': stringArg('web-hostname'),
+      'port': stringArg('web-port') != null ? int.tryParse(stringArg('web-port')!) : null,
+      'headers': extractWebHeaders(),
+      'baseHref': baseHref,
+    };
   }
 
   @protected
@@ -412,7 +400,7 @@ class RunCommand extends RunCommandBase {
   String get category => FlutterCommandCategory.project;
 
   List<Device>? devices;
-  Future<WebDevServerConfig?> getWebDevServerConfig() async {
+  Future<Map<String, Object?>?> getWebDevServerConfig() async {
     // Only support "web mode" with a single web device due to resident runner
     // refactoring required otherwise.
 
@@ -420,7 +408,7 @@ class RunCommand extends RunCommandBase {
         devices != null &&
         devices!.length == 1 &&
         await devices!.single.targetPlatform == TargetPlatform.web_javascript) {
-      final WebDevServerConfig webDevServerConfig = await webDevServerConfigCore();
+      final Map<String, Object?> webDevServerConfig = await webDevServerConfigCore();
       return webDevServerConfig;
     }
     return null;
@@ -583,7 +571,7 @@ class RunCommand extends RunCommandBase {
     if (devices == null) {
       throwToolExit(null);
     }
-    final WebDevServerConfig? webDevServerConfig = await getWebDevServerConfig();
+    final Map<String, Object?>? webDevServerConfig = await getWebDevServerConfig();
     final webMode = webDevServerConfig != null;
     if (globals.deviceManager!.hasSpecifiedAllDevices && runningWithPrebuiltApplication) {
       throwToolExit(
@@ -606,7 +594,7 @@ class RunCommand extends RunCommandBase {
       throwToolExit('--wasm is only supported on the web platform');
     }
 
-    if (webRenderer == WebRendererMode.skwasm && !useWasm) {
+    if (webRenderer == 'skwasm' && !useWasm) {
       throwToolExit('Skwasm renderer requires --wasm');
     }
 
@@ -644,13 +632,21 @@ class RunCommand extends RunCommandBase {
     required String? applicationBinaryPath,
     required FlutterProject flutterProject,
   }) async {
-    final WebDevServerConfig? webDevServerConfig = await getWebDevServerConfig();
-    final webMode = webDevServerConfig != null;
+    final Map<String, Object?>? webDevServerConfig = await getWebDevServerConfig();
     final DebuggingOptions debuggingOptions = await createDebuggingOptions(
       webDevServerConfig: webDevServerConfig,
     );
 
-    if (hotMode && !webMode) {
+    if (flutterDevices.isNotEmpty && flutterDevices.first.device is ExtensionBackedDevice) {
+      return ExtensionResidentRunner(
+        flutterDevices,
+        target: targetFile,
+        debuggingOptions: debuggingOptions,
+        stayResident: stayResident,
+        ipv6: ipv6 ?? false,
+        projectRootPath: stringArg('project-root'),
+      );
+    } else if (hotMode) {
       return HotRunner(
         flutterDevices,
         target: targetFile,
@@ -666,17 +662,6 @@ class RunCommand extends RunCommandBase {
         nativeAssetsYamlFile: stringArg(FlutterOptions.kNativeAssetsYamlFile),
         dartBuilder: hookRunner,
         logger: globals.logger,
-      );
-    } else if (webMode) {
-      return webRunnerFactory!.createWebRunner(
-        flutterDevices.single,
-        target: targetFile,
-        flutterProject: flutterProject,
-        debuggingOptions: debuggingOptions,
-        stayResident: stayResident,
-        analytics: globals.analytics,
-        toolContext: toolContext!,
-        webDefines: extractWebDefines(),
       );
     }
     return ColdRunner(
@@ -713,7 +698,7 @@ class RunCommand extends RunCommandBase {
     // debug mode.
     final bool hotMode = shouldUseHotMode(buildInfo);
     final String? applicationBinaryPath = prebuiltApplicationBinaryPath;
-    final WebDevServerConfig? webDevServerConfig = await getWebDevServerConfig();
+    final Map<String, Object?>? webDevServerConfig = await getWebDevServerConfig();
 
     if (outputMachineFormat) {
       if (devices!.length > 1) {

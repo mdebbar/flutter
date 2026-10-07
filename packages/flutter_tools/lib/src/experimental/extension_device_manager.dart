@@ -10,8 +10,9 @@ import 'package:flutter_tools_extension/flutter_tools_extension.dart';
 import '../application_package.dart';
 import '../base/logger.dart';
 import '../build_info.dart';
-import '../device.dart';
+import '../device.dart' hide Category;
 import '../device_port_forwarder.dart';
+import '../globals.dart' as globals;
 import '../project.dart';
 import 'extension_discovery.dart';
 import 'extension_manager.dart';
@@ -63,6 +64,105 @@ final class ExtensionDeviceClient extends DeviceService {
       _logger.printTrace(
         'ExtensionDeviceClient failed to check project support for "$deviceId": $err\n$stack',
       );
+    }
+    return false;
+  }
+
+  @override
+  Future<ExtensionLaunchResult> startApp({
+    required String deviceId,
+    required String projectRoot,
+    required String mainPath,
+    required String buildMode,
+    String? route,
+    Map<String, Object?> options = const <String, Object?>{},
+  }) async {
+    _logger.printTrace(
+      'ExtensionDeviceClient starting app on "$deviceId" via RPC '
+      '("${DeviceService.startAppMethod}")...',
+    );
+    try {
+      final Object? rawResult = await connection
+          .sendRequest(DeviceService.startAppMethod, <String, Object?>{
+            DeviceService.deviceIdParam: deviceId,
+            DeviceService.projectRootParam: projectRoot,
+            DeviceService.mainPathParam: mainPath,
+            DeviceService.buildModeParam: buildMode,
+            DeviceService.routeParam: ?route,
+            DeviceService.optionsParam: options,
+          })
+          .timeout(const Duration(minutes: 5));
+      if (rawResult case final Map<String, Object?> map) {
+        return ExtensionLaunchResult.fromJson(map);
+      }
+      if (rawResult case final Map<Object?, Object?> map) {
+        return ExtensionLaunchResult.fromJson(map.cast<String, Object?>());
+      }
+    } on Object catch (err, stack) {
+      _logger.printTrace('ExtensionDeviceClient failed to start app on "$deviceId": $err\n$stack');
+      return ExtensionLaunchResult(
+        succeeded: false,
+        errorMessage: 'Extension startApp RPC failed: $err',
+      );
+    }
+    return const ExtensionLaunchResult(
+      succeeded: false,
+      errorMessage: 'Invalid response from extension startApp service.',
+    );
+  }
+
+  @override
+  Future<ExtensionReloadResult> reloadApp({
+    required String deviceId,
+    bool fullRestart = false,
+  }) async {
+    _logger.printTrace(
+      'ExtensionDeviceClient reloading app on "$deviceId" via RPC '
+      '("${DeviceService.reloadAppMethod}")...',
+    );
+    try {
+      final Object? rawResult = await connection
+          .sendRequest(DeviceService.reloadAppMethod, <String, Object?>{
+            DeviceService.deviceIdParam: deviceId,
+            DeviceService.fullRestartParam: fullRestart,
+          })
+          .timeout(const Duration(minutes: 5));
+      if (rawResult case final Map<String, Object?> map) {
+        return ExtensionReloadResult.fromJson(map);
+      }
+      if (rawResult case final Map<Object?, Object?> map) {
+        return ExtensionReloadResult.fromJson(map.cast<String, Object?>());
+      }
+    } on Object catch (err, stack) {
+      _logger.printTrace('ExtensionDeviceClient failed to reload app on "$deviceId": $err\n$stack');
+      return ExtensionReloadResult(
+        succeeded: false,
+        message: 'Extension reloadApp RPC failed: $err',
+      );
+    }
+    return const ExtensionReloadResult(
+      succeeded: false,
+      message: 'Invalid response from extension reloadApp service.',
+    );
+  }
+
+  @override
+  Future<bool> stopApp({required String deviceId}) async {
+    _logger.printTrace(
+      'ExtensionDeviceClient stopping app on "$deviceId" via RPC '
+      '("${DeviceService.stopAppMethod}")...',
+    );
+    try {
+      final Object? rawResult = await connection
+          .sendRequest(DeviceService.stopAppMethod, <String, Object?>{
+            DeviceService.deviceIdParam: deviceId,
+          })
+          .timeout(const Duration(seconds: 5));
+      if (rawResult case final bool stopped) {
+        return stopped;
+      }
+    } on Object catch (err, stack) {
+      _logger.printTrace('ExtensionDeviceClient failed to stop app on "$deviceId": $err\n$stack');
     }
     return false;
   }
@@ -136,25 +236,41 @@ class ExtensionBackedDevice extends Device {
   ExtensionBackedDevice({
     required this.connection,
     required this._deviceService,
-    required super.logger,
+    required this._logger,
     required TargetDevice targetDevice,
   }) : _targetDevice = targetDevice,
        super(
          targetDevice.id,
          category: targetDevice.category,
-         platformType: PlatformType.custom,
+         platformType: targetDevice.category == Category.web
+             ? PlatformType.web
+             : PlatformType.custom,
          ephemeral: targetDevice.ephemeral,
+         logger: _logger,
        );
 
   final DeviceService _deviceService;
+  final Logger _logger;
   final TargetDevice _targetDevice;
   final ExtensionConnection connection;
+
+  /// The application URL returned by the last [startApp] invocation, if any.
+  String? lastAppUrl;
 
   @override
   String get name => _targetDevice.name;
 
   @override
   Future<bool> isSupported() async => _targetDevice.isSupported;
+
+  @override
+  FutureOr<bool> supportsRuntimeMode(BuildMode buildMode) => true;
+
+  @override
+  bool get supportsHotReload => true;
+
+  @override
+  bool get supportsHotRestart => true;
 
   @override
   Future<bool> isSupportedForProject(FlutterProject flutterProject) =>
@@ -219,11 +335,37 @@ class ExtensionBackedDevice extends Device {
     bool ipv6 = false,
     String? userIdentifier,
   }) async {
-    return LaunchResult.failed();
+    final ExtensionLaunchResult result = await _deviceService.startApp(
+      deviceId: id,
+      projectRoot: globals.fs.currentDirectory.path,
+      mainPath: mainPath ?? 'lib/main.dart',
+      buildMode: debuggingOptions?.buildInfo.mode.name ?? 'debug',
+      route: route,
+      options: platformArgs ?? const <String, Object?>{},
+    );
+    lastAppUrl = result.appUrl;
+    if (result.appUrl != null) {
+      _logger.printStatus('${mainPath ?? 'lib/main.dart'} is being served at ${result.appUrl}');
+    }
+    if (!result.succeeded) {
+      if (result.errorMessage != null) {
+        _logger.printError(result.errorMessage!);
+      }
+      return LaunchResult.failed();
+    }
+    final Uri? vmServiceUri = result.vmServiceUri != null
+        ? Uri.tryParse(result.vmServiceUri!)
+        : null;
+    return LaunchResult.succeeded(vmServiceUri: vmServiceUri);
   }
 
+  /// Reloads or restarts the running application via the underlying [DeviceService].
+  Future<ExtensionReloadResult> reloadExtensionApp({bool fullRestart = false}) =>
+      _deviceService.reloadApp(deviceId: id, fullRestart: fullRestart);
+
   @override
-  Future<bool> stopApp(ApplicationPackage? app, {String? userIdentifier}) async => true;
+  Future<bool> stopApp(ApplicationPackage? app, {String? userIdentifier}) async =>
+      _deviceService.stopApp(deviceId: id);
 
   @override
   Future<bool> uninstallApp(ApplicationPackage app, {String? userIdentifier}) async => true;

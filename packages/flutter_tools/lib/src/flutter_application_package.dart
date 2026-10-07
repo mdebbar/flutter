@@ -18,8 +18,19 @@ import 'linux/application_package.dart';
 import 'macos/application_package.dart';
 import 'project.dart';
 import 'tester/flutter_tester.dart';
-import 'web/web_device.dart';
 import 'windows/application_package.dart';
+
+class WebApplicationPackage extends ApplicationPackage {
+  WebApplicationPackage(this.flutterProject) : super(id: flutterProject.manifest.appName);
+
+  final FlutterProject flutterProject;
+
+  @override
+  String get name => flutterProject.manifest.appName;
+
+  /// The location of the web source assets.
+  Directory get webSourcePath => flutterProject.directory.childDirectory('web');
+}
 
 /// A package factory that supports all Flutter target platforms.
 class FlutterApplicationPackageFactory extends ApplicationPackageFactory {

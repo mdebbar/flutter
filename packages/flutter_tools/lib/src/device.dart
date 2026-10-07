@@ -20,8 +20,6 @@ import 'device_port_forwarder.dart';
 import 'device_vm_service_discovery_for_attach.dart';
 import 'project.dart';
 import 'vmservice.dart';
-import 'web/compile.dart';
-import 'web/devfs_config.dart';
 
 DeviceManager? get deviceManager => context.get<DeviceManager>();
 
@@ -963,7 +961,7 @@ class DebuggingOptions {
     this.webEnableExpressionEvaluation = false,
     this.webLaunchUrl,
     bool? webCrossOriginIsolation,
-    WebRendererMode? webRenderer,
+    this.webRenderer,
     this.webUseWasm = false,
     this.vmserviceOutFile,
     this.nativeNullAssertions = false,
@@ -987,8 +985,7 @@ class DebuggingOptions {
     this.adbLogFiltering = true,
     this.iosProfileDebugger,
   }) : debuggingEnabled = true,
-       webCrossOriginIsolation = webCrossOriginIsolation ?? webUseWasm,
-       webRenderer = webRenderer ?? WebRendererMode.getDefault(useWasm: webUseWasm);
+       webCrossOriginIsolation = webCrossOriginIsolation ?? webUseWasm;
 
   DebuggingOptions.disabled(
     this.buildInfo, {
@@ -1002,7 +999,7 @@ class DebuggingOptions {
     this.webBrowserFlags = const <String>[],
     this.webLaunchUrl,
     bool? webCrossOriginIsolation,
-    WebRendererMode? webRenderer,
+    this.webRenderer,
     this.webUseWasm = false,
     this.traceAllowlist,
     this.enableImpeller = ImpellerStatus.platformDefault,
@@ -1050,8 +1047,7 @@ class DebuggingOptions {
        enableDevTools = false,
        ipv6 = false,
        google3WorkspaceRoot = null,
-       printDtd = false,
-       webRenderer = webRenderer ?? WebRendererMode.getDefault(useWasm: webUseWasm);
+       printDtd = false;
 
   DebuggingOptions._({
     required this.buildInfo,
@@ -1110,9 +1106,9 @@ class DebuggingOptions {
     required this.google3WorkspaceRoot,
     required this.printDtd,
     required this.adbLogFiltering,
-    this.webDevServerConfig,
     this.iosProfileDebugger,
-  }) : testFlag = false;
+  }) : webDevServerConfig = null,
+       testFlag = false;
 
   final bool debuggingEnabled;
 
@@ -1165,7 +1161,7 @@ class DebuggingOptions {
   final bool ipv6;
   final String? google3WorkspaceRoot;
   final bool printDtd;
-  final WebDevServerConfig? webDevServerConfig;
+  final Object? webDevServerConfig;
   final bool testFlag;
   final bool adbLogFiltering;
 
@@ -1207,7 +1203,7 @@ class DebuggingOptions {
   final bool webCrossOriginIsolation;
 
   /// Which web renderer to use for the debugging session
-  final WebRendererMode webRenderer;
+  final Object? webRenderer;
 
   /// Whether to compile to webassembly
   final bool webUseWasm;
@@ -1297,10 +1293,10 @@ class DebuggingOptions {
     'disablePortPublication': disablePortPublication,
     'ddsPort': ddsPort,
     'devToolsServerAddress': devToolsServerAddress.toString(),
-    'port': webDevServerConfig?.port,
-    'hostname': webDevServerConfig?.host,
-    'tlsCertPath': webDevServerConfig?.https?.certPath,
-    'tlsCertKeyPath': webDevServerConfig?.https?.certKeyPath,
+    'port': null,
+    'hostname': null,
+    'tlsCertPath': null,
+    'tlsCertKeyPath': null,
     'webEnableExposeUrl': webEnableExposeUrl,
     'webUseSseForDebugProxy': webUseSseForDebugProxy,
     'webUseSseForDebugBackend': webUseSseForDebugBackend,
@@ -1311,8 +1307,8 @@ class DebuggingOptions {
     'webEnableExpressionEvaluation': webEnableExpressionEvaluation,
     'webLaunchUrl': webLaunchUrl,
     'webCrossOriginIsolation': webCrossOriginIsolation,
-    'webHeaders': webDevServerConfig?.headers ?? <String, String>{},
-    'webRenderer': webRenderer.name,
+    'webHeaders': <String, String>{},
+    'webRenderer': webRenderer?.toString() ?? (webUseWasm ? 'skwasm' : 'canvaskit'),
     'webUseWasm': webUseWasm,
     'vmserviceOutFile': vmserviceOutFile,
     'nativeNullAssertions': nativeNullAssertions,
@@ -1384,7 +1380,7 @@ class DebuggingOptions {
         webEnableExpressionEvaluation: json['webEnableExpressionEvaluation']! as bool,
         webLaunchUrl: json['webLaunchUrl'] as String?,
         webCrossOriginIsolation: json['webCrossOriginIsolation']! as bool,
-        webRenderer: WebRendererMode.values.byName(json['webRenderer']! as String),
+        webRenderer: json['webRenderer'],
         webUseWasm: json['webUseWasm']! as bool,
         vmserviceOutFile: json['vmserviceOutFile'] as String?,
         nativeNullAssertions: json['nativeNullAssertions']! as bool,
@@ -1404,12 +1400,6 @@ class DebuggingOptions {
         google3WorkspaceRoot: json['google3WorkspaceRoot'] as String?,
         printDtd: (json['printDtd'] as bool?) ?? false,
         adbLogFiltering: (json['adbLogFiltering'] as bool?) ?? true,
-        webDevServerConfig: WebDevServerConfig(
-          port: json['port'] is int ? json['port']! as int : 8080,
-          host: json['hostname'] is String ? json['hostname']! as String : 'localhost',
-          https: HttpsConfig.parse(json['tlsCertPath'], json['tlsCertKeyPath']),
-          headers: (json['webHeaders']! as Map<dynamic, dynamic>).cast<String, String>(),
-        ),
       );
 
   Map<String, Object?> _getAndroidEngineConfig() {

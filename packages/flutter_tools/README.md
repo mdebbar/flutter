@@ -1,5 +1,7 @@
 # Flutter Tools
 
+> **Prototype Branch (`replace_web_pluggable_device`)**: Built-in web support in `flutter_tools` has been replaced with an out-of-process isolate extension (`package:flutter_tools_extension_web_prototype`). See [`packages/flutter_tools_extension_web_prototype/README.md`](packages/flutter_tools_extension_web_prototype/README.md) for what changed, how to use it, and the architectural benefits.
+
 This section of the Flutter repository contains the command line developer tools
 for building Flutter applications.
 

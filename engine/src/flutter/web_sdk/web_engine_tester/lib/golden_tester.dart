@@ -57,15 +57,28 @@ Future<void> matchGoldenFile(
   // visible to the user, so we pump 15 frames to make sure that the content
   // has reached the screen. This is at the recommendation of the Chrome team,
   // and they use this same thing in their screenshot unit tests.
+  final rafSw = Stopwatch()..start();
+  var rafFrame = 0;
+  var stage = 'raf';
+  final watchdog = Timer(const Duration(seconds: 15), () {
+    print(
+      '[DEFLAKE-BROWSER] stall>15s file=$filename stage=$stage raf=$rafFrame/15 ms=${rafSw.elapsedMilliseconds}',
+    );
+  });
   for (var i = 0; i < 15; i += 1) {
     await awaitNextFrame();
+    rafFrame = i + 1;
   }
+  final int rafMs = rafSw.elapsedMilliseconds;
+  stage = 'http_screenshot';
 
   if (!filename.endsWith('.png')) {
+    watchdog.cancel();
     throw ArgumentError('Filename must end in .png or SkiaGold will ignore it.');
   }
   final serverParams = <String, dynamic>{
     'filename': filename,
+    'rafMs': rafMs,
     'region': region == null
         ? null
         : <String, dynamic>{
@@ -84,7 +97,12 @@ Future<void> matchGoldenFile(
     'pixelColorDeltaPerChannel': pixelColorDeltaPerChannel,
   };
 
-  final response = await _callScreenshotServer(serverParams) as String;
+  final String response;
+  try {
+    response = await _callScreenshotServer(serverParams) as String;
+  } finally {
+    watchdog.cancel();
+  }
   if (response == 'OK') {
     // Pass
     return;

@@ -34,6 +34,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_test_utils/image_compare.dart';
 
 import 'browser.dart';
+import 'chrome.dart';
 import 'environment.dart' as env;
 import 'felt_config.dart';
 import 'utils.dart';
@@ -409,6 +410,7 @@ class BrowserPlatform extends PlatformPlugin {
       filename,
       region,
       isCanvaskitTest,
+      rafMs: (requestData['rafMs'] as num?)?.toInt() ?? -1,
       pixelComparison: pixelComparison,
       maxDiffRate: maxDiffRate,
       pixelColorDeltaPerChannel: pixelColorDeltaPerChannel,
@@ -416,10 +418,14 @@ class BrowserPlatform extends PlatformPlugin {
     return shelf.Response.ok(json.encode(result));
   }
 
+  int _ssCount = 0, _slowCount = 0, _maxRafMs = 0, _maxCdpMs = 0, _maxCmpMs = 0;
+  String _inFlight = 'none';
+
   Future<String> _diffScreenshot(
     String filename,
     Map<String, dynamic> region,
     bool isCanvaskitTest, {
+    required int rafMs,
     PixelComparison pixelComparison = PixelComparison.fuzzy,
     double? maxDiffRate,
     int? pixelColorDeltaPerChannel,
@@ -431,10 +437,21 @@ class BrowserPlatform extends PlatformPlugin {
       region['height'] as num,
     );
 
+    final int id = ++_ssCount;
+    _inFlight = '#$id:$filename:cdp';
+    final sw = Stopwatch()..start();
+    final watchdog = Timer(const Duration(seconds: 15), () {
+      print(
+        '[DEFLAKE-SERVER] IN-FLIGHT >15s $_inFlight '
+        'cdpPhase=${Chrome.lastPhase} raf=${rafMs}ms elapsed=${sw.elapsedMilliseconds}ms',
+      );
+    });
     // Take screenshot.
     final Image screenshot = await (await browserManager).captureScreenshot(regionAsRectangle);
+    final int cdpMs = sw.elapsedMilliseconds;
+    _inFlight = '#$id:$filename:compare';
 
-    return compareImage(
+    final String res = await compareImage(
       screenshot,
       doUpdateScreenshotGoldens,
       filename,
@@ -449,6 +466,20 @@ class BrowserPlatform extends PlatformPlugin {
       refreshGoldens: refreshGoldens,
       cacheDirectory: env.environment.webUiGoldensCacheDirectory,
     );
+    watchdog.cancel();
+    _inFlight = 'none';
+    final int cmpMs = sw.elapsedMilliseconds - cdpMs;
+    _maxRafMs = max(_maxRafMs, rafMs);
+    _maxCdpMs = max(_maxCdpMs, cdpMs);
+    _maxCmpMs = max(_maxCmpMs, cmpMs);
+    if (rafMs >= 500 || cdpMs >= 500 || cmpMs >= 500) {
+      _slowCount += 1;
+      print(
+        '[DEFLAKE-SS] slow #$id file=$filename raf=${rafMs}ms '
+        'cdp=${cdpMs}ms(${Chrome.lastBreakdown}) cmp=${cmpMs}ms',
+      );
+    }
+    return res;
   }
 
   static const Map<String, String> contentTypes = <String, String>{
@@ -720,6 +751,14 @@ class BrowserPlatform extends PlatformPlugin {
   @override
   Future<void> close() {
     return _closeMemo.runOnce(() async {
+      print(
+        '[DEFLAKE-SUITE] suite=${suite.name} ss=$_ssCount slow=$_slowCount '
+        'maxRaf=${_maxRafMs}ms maxCdp=${_maxCdpMs}ms'
+        '(tab=${Chrome.maxTabMs}/conn=${Chrome.maxConnMs}/met=${Chrome.maxMetMs}/cap=${Chrome.maxCapMs}/dec=${Chrome.maxDecMs}) '
+        'maxCmp=${_maxCmpMs}ms inFlight=$_inFlight '
+        'branch=${Platform.environment['GIT_BRANCH']} tryjob=${Platform.environment['GOLD_TRYJOB']}',
+      );
+      Chrome.maxTabMs = Chrome.maxConnMs = Chrome.maxMetMs = Chrome.maxCapMs = Chrome.maxDecMs = 0;
       final futures = <Future<void>>[];
       futures.add(
         Future<void>.microtask(() async {

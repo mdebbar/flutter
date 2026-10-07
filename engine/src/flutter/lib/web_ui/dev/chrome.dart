@@ -251,8 +251,14 @@ class Chrome extends Browser {
   ///
   /// This method can be used for both macOS and Linux.
   // TODO(yjbanov): extends tests to Window, https://github.com/flutter/flutter/issues/65673
+  static String lastPhase = 'idle';
+  static String lastBreakdown = '';
+  static int maxTabMs = 0, maxConnMs = 0, maxMetMs = 0, maxCapMs = 0, maxDecMs = 0;
+
   @override
   Future<Image> captureScreenshot(math.Rectangle<num>? region) async {
+    final sw = Stopwatch()..start();
+    lastPhase = 'getTab';
     final chromeConnection = wip.ChromeConnection('localhost', kDevtoolsPort);
     final wip.ChromeTab? chromeTab = await chromeConnection.getTab(
       (wip.ChromeTab chromeTab) => chromeTab.url.contains('localhost'),
@@ -260,7 +266,10 @@ class Chrome extends Browser {
     if (chromeTab == null) {
       throw StateError('Failed locate Chrome tab with the test page');
     }
+    final int tabMs = sw.elapsedMilliseconds;
+    lastPhase = 'connect';
     final wip.WipConnection wipConnection = await chromeTab.connect();
+    final int connMs = sw.elapsedMilliseconds - tabMs;
 
     Map<String, dynamic>? captureScreenshotParameters;
     if (region != null) {
@@ -280,18 +289,30 @@ class Chrome extends Browser {
 
     // Setting hardware-independent screen parameters:
     // https://chromedevtools.github.io/devtools-protocol/tot/Emulation
+    lastPhase = 'setMetrics';
     await wipConnection.sendCommand('Emulation.setDeviceMetricsOverride', <String, dynamic>{
       'width': kMaxScreenshotWidth,
       'height': kMaxScreenshotHeight,
       'deviceScaleFactor': 1,
       'mobile': false,
     });
+    final int metMs = sw.elapsedMilliseconds - tabMs - connMs;
+    lastPhase = 'captureScreenshot';
     final wip.WipResponse response = await wipConnection.sendCommand(
       'Page.captureScreenshot',
       captureScreenshotParameters,
     );
-
+    final int capMs = sw.elapsedMilliseconds - tabMs - connMs - metMs;
+    lastPhase = 'decodePng';
     final Image screenshot = decodePng(base64.decode(response.result!['data'] as String))!;
+    final int decMs = sw.elapsedMilliseconds - tabMs - connMs - metMs - capMs;
+    lastPhase = 'done';
+    lastBreakdown = 'tab=$tabMs/conn=$connMs/met=$metMs/cap=$capMs/dec=$decMs';
+    maxTabMs = math.max(maxTabMs, tabMs);
+    maxConnMs = math.max(maxConnMs, connMs);
+    maxMetMs = math.max(maxMetMs, metMs);
+    maxCapMs = math.max(maxCapMs, capMs);
+    maxDecMs = math.max(maxDecMs, decMs);
 
     return screenshot;
   }

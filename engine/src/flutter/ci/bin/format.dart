@@ -1284,7 +1284,13 @@ Future<String> _getDiffBaseRevision(ProcessManager processManager, Directory rep
   if (upstreamUrl.isEmpty) {
     upstream = 'origin';
   }
-  await _runGit(<String>['fetch', upstream, 'main'], processRunner);
+  final String mainRef = await _runGit(
+    <String>['ls-remote', upstream, 'refs/heads/main'],
+    processRunner,
+    failOk: true,
+  );
+  final branch = mainRef.trim().isNotEmpty ? 'main' : 'master';
+  await _runGit(<String>['fetch', upstream, branch], processRunner);
   var result = '';
   try {
     // This is the preferred command to use, but developer checkouts often do

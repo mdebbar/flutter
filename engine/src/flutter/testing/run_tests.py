@@ -1140,15 +1140,12 @@ def run_engine_tasks_in_parallel(tasks: typing.List[EngineExecutableTask]) -> bo
       async_results = [(t, pool.apply_async(t, ())) for t in tasks]
       for task, async_result in async_results:
         try:
-          exception, logs = async_result.get(timeout=300)
+          exception, logs = async_result.get()
           for line in logs:
             _logger.info(line)
           if exception is not None:
             failures += [(task, exception)]
         except Exception as exn:  # pylint: disable=broad-except
-          ps_out = subprocess.run(['ps', '-ef'], capture_output=True, text=True, check=False).stdout
-          _logger.error('[DEFLAKE] async_result.get failed task=%s exn=%r\nps:\n%s', task, exn, ps_out)
-          sys_stdout.flush()
           failures += [(task, exn)]
       _logger.info('[DEFLAKE] pool_loop_done failures=%d', len(failures))
       sys_stdout.flush()

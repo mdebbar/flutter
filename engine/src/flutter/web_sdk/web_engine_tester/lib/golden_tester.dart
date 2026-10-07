@@ -60,11 +60,13 @@ Future<void> matchGoldenFile(
   final rafSw = Stopwatch()..start();
   var rafFrame = 0;
   var stage = 'raf';
-  final watchdog = Timer(const Duration(seconds: 15), () {
-    print(
-      '[DEFLAKE-BROWSER] stall>15s file=$filename stage=$stage raf=$rafFrame/15 ms=${rafSw.elapsedMilliseconds}',
-    );
-  });
+  final watchdog = Timer(
+    const Duration(seconds: 15),
+    // ignore: avoid_print
+    () => print(
+      '[DEFLAKE-BROWSER] >15s $filename stage=$stage raf=$rafFrame/15 ms=${rafSw.elapsedMilliseconds}',
+    ),
+  );
   for (var i = 0; i < 15; i += 1) {
     await awaitNextFrame();
     rafFrame = i + 1;
@@ -97,12 +99,8 @@ Future<void> matchGoldenFile(
     'pixelColorDeltaPerChannel': pixelColorDeltaPerChannel,
   };
 
-  final String response;
-  try {
-    response = await _callScreenshotServer(serverParams) as String;
-  } finally {
-    watchdog.cancel();
-  }
+  final response = await _callScreenshotServer(serverParams) as String;
+  watchdog.cancel();
   if (response == 'OK') {
     // Pass
     return;

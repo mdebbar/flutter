@@ -440,12 +440,10 @@ class BrowserPlatform extends PlatformPlugin {
     final int id = ++_ssCount;
     _inFlight = '#$id:$filename:cdp';
     final sw = Stopwatch()..start();
-    final watchdog = Timer(const Duration(seconds: 15), () {
-      print(
-        '[DEFLAKE-SERVER] IN-FLIGHT >15s $_inFlight '
-        'cdpPhase=${Chrome.lastPhase} raf=${rafMs}ms elapsed=${sw.elapsedMilliseconds}ms',
-      );
-    });
+    final watchdog = Timer(
+      const Duration(seconds: 15),
+      () => print('[DEFLAKE-SERVER] >15s $_inFlight cdp=${Chrome.lastPhase} raf=${rafMs}ms'),
+    );
     // Take screenshot.
     final Image screenshot = await (await browserManager).captureScreenshot(regionAsRectangle);
     final int cdpMs = sw.elapsedMilliseconds;
@@ -475,8 +473,7 @@ class BrowserPlatform extends PlatformPlugin {
     if (rafMs >= 500 || cdpMs >= 500 || cmpMs >= 500) {
       _slowCount += 1;
       print(
-        '[DEFLAKE-SS] slow #$id file=$filename raf=${rafMs}ms '
-        'cdp=${cdpMs}ms(${Chrome.lastBreakdown}) cmp=${cmpMs}ms',
+        '[DEFLAKE-SS] #$id $filename raf=$rafMs cdp=$cdpMs(${Chrome.lastBreakdown}) cmp=$cmpMs',
       );
     }
     return res;
@@ -752,11 +749,9 @@ class BrowserPlatform extends PlatformPlugin {
   Future<void> close() {
     return _closeMemo.runOnce(() async {
       print(
-        '[DEFLAKE-SUITE] suite=${suite.name} ss=$_ssCount slow=$_slowCount '
-        'maxRaf=${_maxRafMs}ms maxCdp=${_maxCdpMs}ms'
-        '(tab=${Chrome.maxTabMs}/conn=${Chrome.maxConnMs}/met=${Chrome.maxMetMs}/cap=${Chrome.maxCapMs}/dec=${Chrome.maxDecMs}) '
-        'maxCmp=${_maxCmpMs}ms inFlight=$_inFlight '
-        'branch=${Platform.environment['GIT_BRANCH']} tryjob=${Platform.environment['GOLD_TRYJOB']}',
+        '[DEFLAKE-SUITE] suite=${suite.name} ss=$_ssCount slow=$_slowCount maxRaf=$_maxRafMs '
+        'maxCdp=$_maxCdpMs(tab=${Chrome.maxTabMs}/conn=${Chrome.maxConnMs}/met=${Chrome.maxMetMs}/cap=${Chrome.maxCapMs}/dec=${Chrome.maxDecMs}) '
+        'maxCmp=$_maxCmpMs inFlight=$_inFlight branch=${Platform.environment['GIT_BRANCH']} tryjob=${Platform.environment['GOLD_TRYJOB']}',
       );
       Chrome.maxTabMs = Chrome.maxConnMs = Chrome.maxMetMs = Chrome.maxCapMs = Chrome.maxDecMs = 0;
       final futures = <Future<void>>[];

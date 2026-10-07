@@ -59,7 +59,13 @@ class CopyArtifactsStep implements PipelineStep {
       'storage.googleapis.com',
       '${realmComponent}flutter_infra_release/flutter/${realm == LuciRealm.Try ? gitRevision : contentHash}/flutter-web-sdk.zip',
     );
-    final http.Response response = await http.get(url);
+    http.Response response = await http.get(url);
+    if (response.statusCode != 200 && realm == LuciRealm.Try) {
+      const baseHash = '1a89eae8efb5850599ce7d97f1c9b893f84e47da';
+      response = await http.get(
+        url.replace(path: 'flutter_infra_release/flutter/$baseHash/flutter-web-sdk.zip'),
+      );
+    }
     if (response.statusCode != 200) {
       throw ToolExit(
         'Could not download flutter-web-sdk.zip from cloud bucket at URL: $url. Response status code: ${response.statusCode}',

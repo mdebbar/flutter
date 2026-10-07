@@ -313,7 +313,6 @@ class Chrome extends Browser {
     maxMetMs = math.max(maxMetMs, metMs);
     maxCapMs = math.max(maxCapMs, capMs);
     maxDecMs = math.max(maxDecMs, decMs);
-
     return screenshot;
   }
 }

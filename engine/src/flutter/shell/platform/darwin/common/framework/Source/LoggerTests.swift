@@ -7,6 +7,7 @@ import Foundation
 import Testing
 @testable import test_utils_swift
 
+// Serialized because tests mutate process-global Logger.logLevel and Logger.outputWriter.
 @Suite(.serialized) struct LoggerTests {
 
   @Test func testInitialization() {
@@ -101,9 +102,6 @@ import Testing
         wasEvaluated = true
         return "Hello world"
       }())
-    if writer.didLog || wasEvaluated {
-      fputs("[DEFLAKE] LoggerTests race: didLog=\(writer.didLog) wasEvaluated=\(wasEvaluated) logLevel=\(Logger.logLevel.rawValue) sameWriter=\(Logger.outputWriter === writer)\n", stderr)
-    }
     #expect(!writer.didLog)
     #expect(!wasEvaluated)
   }

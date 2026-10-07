@@ -398,7 +398,6 @@ class EngineExecutableTask():  # pylint: disable=too-many-instance-attributes
     # Don't propagate to the root logger to avoid double logging
     logger.propagate = False
 
-    _logger.info('[DEFLAKE] task_start cwd=%s cmd=%s', self.cwd, self)
     try:
       run_engine_executable(
           self.build_dir,
@@ -413,10 +412,8 @@ class EngineExecutableTask():  # pylint: disable=too-many-instance-attributes
           extra_env=self.extra_env,
           logger=logger,
       )
-      _logger.info('[DEFLAKE] task_end cwd=%s ok=1', self.cwd)
       return (None, log_capture_string.getvalue().splitlines())
     except Exception as exn:  # pylint: disable=broad-except
-      _logger.info('[DEFLAKE] task_end cwd=%s ok=0 err=%s', self.cwd, exn)
       return (exn, log_capture_string.getvalue().splitlines())
 
   def __str__(self) -> str:
@@ -1132,8 +1129,6 @@ def run_engine_tasks_in_parallel(tasks: typing.List[EngineExecutableTask]) -> bo
   queue_listener.start()
 
   failures = []
-  _logger.info('[DEFLAKE] pool_enter count=%d', len(tasks))
-  sys_stdout.flush()
   try:
     with multiprocessing.Pool(max_processes, worker_init,
                               [queue, _logger.getEffectiveLevel()]) as pool:
@@ -1147,14 +1142,8 @@ def run_engine_tasks_in_parallel(tasks: typing.List[EngineExecutableTask]) -> bo
             failures += [(task, exception)]
         except Exception as exn:  # pylint: disable=broad-except
           failures += [(task, exn)]
-      _logger.info('[DEFLAKE] pool_loop_done failures=%d', len(failures))
-      sys_stdout.flush()
-    _logger.info('[DEFLAKE] pool_with_exited')
-    sys_stdout.flush()
   finally:
     queue_listener.stop()
-    _logger.info('[DEFLAKE] queue_listener_stopped')
-    sys_stdout.flush()
 
   if len(failures) > 0:
     print_divider('<')

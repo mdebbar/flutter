@@ -1284,6 +1284,8 @@ Future<String> _getDiffBaseRevision(ProcessManager processManager, Directory rep
   if (upstreamUrl.isEmpty) {
     upstream = 'origin';
   }
+  // Fork remotes may only have 'master' instead of 'main'; check before fetching
+  // so git wrappers do not retry a missing ref.
   final String mainRef = await _runGit(
     <String>['ls-remote', upstream, 'refs/heads/main'],
     processRunner,

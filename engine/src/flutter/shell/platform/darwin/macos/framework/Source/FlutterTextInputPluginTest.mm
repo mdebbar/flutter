@@ -45,21 +45,12 @@
 @interface TextInputTestViewController : FlutterViewController
 @end
 
-#include <malloc/malloc.h>
-#include <objc/runtime.h>
-
 @implementation TextInputTestViewController
 - (nonnull FlutterView*)createFlutterViewWithMTLDevice:(id<MTLDevice>)device
                                           commandQueue:(id<MTLCommandQueue>)commandQueue {
-  id mock = OCMPartialMock([[NSView alloc] initWithFrame:NSZeroRect]);
-  fprintf(stderr,
-          "[DEFLAKE] createFlutterViewWithMTLDevice os=%s mock=%p malloc_sz=%zu cls_sz=%zu "
-          "nsview_sz=%zu heap_ok=%d\n",
-          [[[NSProcessInfo processInfo] operatingSystemVersionString] UTF8String],
-          (__bridge void*)mock, malloc_size((__bridge const void*)mock),
-          class_getInstanceSize(object_getClass(mock)), class_getInstanceSize([NSView class]),
-          malloc_zone_check(nullptr));
-  return mock;
+  // Backing with a real NSView is required because -[NSView addSubview:] accesses NSView ivars
+  // directly; an unbacked OCMClassMock(NSProxy) allocation is smaller than NSView and overflows.
+  return OCMPartialMock([[NSView alloc] initWithFrame:NSZeroRect]);
 }
 @end
 

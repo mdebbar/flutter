@@ -111,58 +111,6 @@ class WinTool(object):
       if not os.path.exists(dest):
         raise Exception("Copying of %s to %s failed" % (source, dest))
 
-    if dest == 'gen/dart-pkg/sky_engine/AUTHORS':
-      self._ProbeVpythonContention()
-
-  def _ProbeVpythonContention(self):
-    import time
-    t0 = time.time()
-    exe = sys.executable
-    store_dir = os.path.dirname(os.path.dirname(os.path.dirname(exe)))
-    src_root = os.path.abspath(os.path.join(BASE_DIR, '..', '..', '..'))
-    root_vp = os.path.exists(os.path.join(src_root, '.vpython3'))
-    angle_vp_path = os.path.join(src_root, 'flutter', 'third_party', 'angle', '.vpython3')
-    angle_vp = os.path.exists(angle_vp_path)
-    commit_py = os.path.join(src_root, 'flutter', 'third_party', 'angle', 'src', 'commit_id.py')
-    imports = []
-    if os.path.exists(commit_py):
-      with open(commit_py, 'r', encoding='utf8', errors='ignore') as f:
-        imports = [l.strip() for l in f if l.lstrip().startswith(('import ', 'from '))]
-    def snap_store():
-      try:
-        entries = os.listdir(store_dir) if os.path.isdir(store_dir) else []
-        reqs = [e for e in entries if e.startswith(('vpython_requirements+', 'wheels+', 'python_venv-'))]
-        return len(entries), sorted(reqs)[:12]
-      except Exception as e:
-        return -1, [str(e)]
-    def count_vpython():
-      try:
-        out = subprocess.check_output(
-            ['tasklist', '/FI', 'IMAGENAME eq vpython3.exe', '/NH'],
-            stderr=subprocess.STDOUT).decode('utf8', errors='ignore')
-        return out.lower().count('vpython3.exe')
-      except Exception:
-        return -1
-    s0_cnt, s0_reqs = snap_store()
-    peak_vp = count_vpython()
-    vp_samples = [peak_vp]
-    angle_ms = None
-    while time.time() - t0 < 4.0:
-      if os.path.exists('gen/angle/angle_commit.h'):
-        angle_ms = int((time.time() - t0) * 1000)
-        break
-      time.sleep(0.2)
-      c = count_vpython()
-      vp_samples.append(c)
-      if c > peak_vp:
-        peak_vp = c
-    s1_cnt, s1_reqs = snap_store()
-    print('[DEFLAKE_PROBE] exe=%s root_vpython3=%s angle_vpython3=%s commit_id_imports=%s '
-          'peak_vpython_procs=%d vp_samples=%s angle_commit_h_ms=%s '
-          'store_t0=(%d,%s) store_t1=(%d,%s)' % (
-              exe, root_vp, angle_vp, imports, peak_vp, vp_samples,
-              angle_ms, s0_cnt, s0_reqs, s1_cnt, s1_reqs))
-
   def ExecLinkWrapper(self, arch, use_separate_mspdbsrv, *args):
     """Filter diagnostic output from link that looks like:
     '   Creating library ui.dll.lib and object ui.dll.exp'

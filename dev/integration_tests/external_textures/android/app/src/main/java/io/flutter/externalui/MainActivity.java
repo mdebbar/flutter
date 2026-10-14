@@ -9,6 +9,8 @@ import android.graphics.Paint;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Debug;
+import android.os.Process;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -49,6 +51,13 @@ public class MainActivity extends FlutterActivity {
   private AtomicInteger consumerTicks = new AtomicInteger(0);
   private AtomicLong drawTotalNs = new AtomicLong(0);
   private AtomicLong drawMaxNs = new AtomicLong(0);
+  private FrameRenderer lastRenderer;
+  private volatile long producerMaxLagMs;
+  private volatile long producerLastLagMs;
+  private volatile int producerLateTicks;
+  private volatile long tickBodyTotalNs;
+  private volatile long consumerMaxLagMs;
+  private long procCpuStartMs;
 
   @Override
   public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
@@ -70,12 +79,27 @@ public class MainActivity extends FlutterActivity {
             final int fps = methodCall.arguments();
             lastTargetFps = fps;
             final FrameRenderer renderer = new FrameRenderer(surface);
+            lastRenderer = renderer;
+            producerMaxLagMs = 0;
+            producerLastLagMs = 0;
+            producerLateTicks = 0;
+            tickBodyTotalNs = 0;
+            consumerMaxLagMs = 0;
+            procCpuStartMs = Process.getElapsedCpuTime();
             producerTimer = new Timer();
             producerTimer.scheduleAtFixedRate(new TimerTask() {
               @Override
               public void run() {
+                final long tickStartNs = System.nanoTime();
                 producerTicks.incrementAndGet();
                 final long time = System.currentTimeMillis();
+                // Timer backlog: how far behind its fixed-rate schedule this tick runs.
+                final long lag = time - scheduledExecutionTime();
+                producerLastLagMs = lag;
+                producerMaxLagMs = Math.max(producerMaxLagMs, lag);
+                if (lag >= 1000 / fps) {
+                  producerLateTicks++;
+                }
                 if (time <= startTime) {
                   skippedZeroElapsed.incrementAndGet();
                 }
@@ -90,6 +114,7 @@ public class MainActivity extends FlutterActivity {
                 } else {
                   skippedByCap.incrementAndGet();
                 }
+                tickBodyTotalNs += System.nanoTime() - tickStartNs;
               }
             }, 0, 1000 / fps);
             consumerTimer = new Timer();
@@ -99,6 +124,7 @@ public class MainActivity extends FlutterActivity {
               @Override
               public void run() {
                 consumerTicks.incrementAndGet();
+                consumerMaxLagMs = Math.max(consumerMaxLagMs, System.currentTimeMillis() - scheduledExecutionTime());
                 final long timestamp = texture.getTimestamp();
                 // The texture's timestamp is updated on consumption.
                 // We detect the change by asking very frequently.
@@ -133,6 +159,20 @@ public class MainActivity extends FlutterActivity {
                 drawMeanMs, drawMaxMs, drawTotalMs,
                 consumerTicks.get(), framesConsumed.get(),
                 frameRate(framesConsumed, startTime, endTime)));
+            final FrameRenderer r = lastRenderer;
+            final double n = Math.max(1, r.frames);
+            Log.i("flutter", String.format(
+                Locale.US,
+                "[DEFLAKE_STATS2] targetFps=%d nproc=%d procCpuMs=%d elapsedMs=%d tickBodyTotalMs=%.1f "
+                    + "producerMaxLagMs=%d producerLastLagMs=%d producerLateTicks=%d consumerMaxLagMs=%d "
+                    + "frames=%d lockMeanMs=%.2f lockCpuMeanMs=%.2f lockMaxMs=%.2f drawMeanMs=%.2f "
+                    + "drawCpuMeanMs=%.2f postMeanMs=%.2f postCpuMeanMs=%.2f postMaxMs=%.2f",
+                lastTargetFps, Runtime.getRuntime().availableProcessors(),
+                Process.getElapsedCpuTime() - procCpuStartMs, elapsedMs, tickBodyTotalNs / 1e6,
+                producerMaxLagMs, producerLastLagMs, producerLateTicks, consumerMaxLagMs,
+                r.frames, r.lockNs / n / 1e6, r.lockCpuNs / n / 1e6, r.lockMaxNs / 1e6,
+                r.drawNs / n / 1e6, r.drawCpuNs / n / 1e6, r.postNs / n / 1e6,
+                r.postCpuNs / n / 1e6, r.postMaxNs / 1e6));
             result.success(null);
             break;
           case "getProducedFrameRate":
@@ -185,6 +225,8 @@ class FrameRenderer {
   private final Surface surface;
   private final Paint paint;
   private int frameCount = 0;
+  // Diagnostic per-segment wall/thread-CPU totals (written on the producer timer thread only).
+  volatile long frames, lockNs, lockCpuNs, lockMaxNs, drawNs, drawCpuNs, postNs, postCpuNs, postMaxNs;
 
   FrameRenderer(Surface surface) {
     this.surface = surface;
@@ -195,9 +237,26 @@ class FrameRenderer {
   }
 
   void drawFrame() {
+    final long c0 = Debug.threadCpuTimeNanos();
+    final long t0 = System.nanoTime();
     final Canvas canvas = surface.lockCanvas(null);
+    final long c1 = Debug.threadCpuTimeNanos();
+    final long t1 = System.nanoTime();
     canvas.drawColor(0xff000000);
     canvas.drawText(String.valueOf(++frameCount), 20, 120, paint);
+    final long c2 = Debug.threadCpuTimeNanos();
+    final long t2 = System.nanoTime();
     surface.unlockCanvasAndPost(canvas);
+    final long c3 = Debug.threadCpuTimeNanos();
+    final long t3 = System.nanoTime();
+    frames++;
+    lockNs += t1 - t0;
+    lockCpuNs += c1 - c0;
+    lockMaxNs = Math.max(lockMaxNs, t1 - t0);
+    drawNs += t2 - t1;
+    drawCpuNs += c2 - c1;
+    postNs += t3 - t2;
+    postCpuNs += c3 - c2;
+    postMaxNs = Math.max(postMaxNs, t3 - t2);
   }
 }

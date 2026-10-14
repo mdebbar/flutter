@@ -36,6 +36,10 @@ class MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   Future<void> _summarizeStats() async {
     final double? framesProduced = await channel.invokeMethod('getProducedFrameRate');
     final double? framesConsumed = await channel.invokeMethod('getConsumedFrameRate');
+    debugPrint(
+      '[DEFLAKE_SUMMARY] state=$_state targetRate=$_flutterFrameRate '
+      'produced=$framesProduced consumed=$framesConsumed builds=$_widgetBuilds',
+    );
     _summary =
         '''
 Produced: ${framesProduced?.toStringAsFixed(1)}fps

@@ -9,14 +9,17 @@ import android.graphics.Paint;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.View;
 import androidx.annotation.NonNull;
 
+import java.util.Locale;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.android.FlutterSurfaceView;
@@ -37,8 +40,15 @@ public class MainActivity extends FlutterActivity {
   private Timer consumerTimer;
   private long startTime;
   private long endTime;
+  private int lastTargetFps;
   private AtomicInteger framesProduced = new AtomicInteger(0);
   private AtomicInteger framesConsumed = new AtomicInteger(0);
+  private AtomicInteger producerTicks = new AtomicInteger(0);
+  private AtomicInteger skippedByCap = new AtomicInteger(0);
+  private AtomicInteger skippedZeroElapsed = new AtomicInteger(0);
+  private AtomicInteger consumerTicks = new AtomicInteger(0);
+  private AtomicLong drawTotalNs = new AtomicLong(0);
+  private AtomicLong drawMaxNs = new AtomicLong(0);
 
   @Override
   public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
@@ -51,16 +61,34 @@ public class MainActivity extends FlutterActivity {
           case "start":
             framesProduced.set(0);
             framesConsumed.set(0);
+            producerTicks.set(0);
+            skippedByCap.set(0);
+            skippedZeroElapsed.set(0);
+            consumerTicks.set(0);
+            drawTotalNs.set(0);
+            drawMaxNs.set(0);
             final int fps = methodCall.arguments();
+            lastTargetFps = fps;
             final FrameRenderer renderer = new FrameRenderer(surface);
             producerTimer = new Timer();
             producerTimer.scheduleAtFixedRate(new TimerTask() {
               @Override
               public void run() {
+                producerTicks.incrementAndGet();
                 final long time = System.currentTimeMillis();
+                if (time <= startTime) {
+                  skippedZeroElapsed.incrementAndGet();
+                }
                 if (frameRate(framesProduced, startTime, time) < fps) {
+                  final long t0 = System.nanoTime();
                   renderer.drawFrame();
+                  final long dt = System.nanoTime() - t0;
+                  drawTotalNs.addAndGet(dt);
+                  long prevMax;
+                  while (dt > (prevMax = drawMaxNs.get()) && !drawMaxNs.compareAndSet(prevMax, dt)) {}
                   framesProduced.incrementAndGet();
+                } else {
+                  skippedByCap.incrementAndGet();
                 }
               }
             }, 0, 1000 / fps);
@@ -70,6 +98,7 @@ public class MainActivity extends FlutterActivity {
 
               @Override
               public void run() {
+                consumerTicks.incrementAndGet();
                 final long timestamp = texture.getTimestamp();
                 // The texture's timestamp is updated on consumption.
                 // We detect the change by asking very frequently.
@@ -86,6 +115,24 @@ public class MainActivity extends FlutterActivity {
             producerTimer.cancel();
             consumerTimer.cancel();
             endTime = System.currentTimeMillis();
+            final long elapsedMs = endTime - startTime;
+            final int produced = framesProduced.get();
+            final double drawTotalMs = drawTotalNs.get() / 1_000_000.0;
+            final double drawMeanMs = produced > 0 ? drawTotalMs / produced : 0.0;
+            final double drawMaxMs = drawMaxNs.get() / 1_000_000.0;
+            Log.i("flutter", String.format(
+                Locale.US,
+                "[DEFLAKE_STATS] targetFps=%d periodMs=%d elapsedMs=%d producerTicks=%d "
+                    + "produced=%d skippedByCap=%d skippedZeroElapsed=%d producedFps=%.2f "
+                    + "unthrottledTickFps=%.2f drawMeanMs=%.2f drawMaxMs=%.2f drawTotalMs=%.1f "
+                    + "consumerTicks=%d consumed=%d consumedFps=%.2f",
+                lastTargetFps, 1000 / lastTargetFps, elapsedMs, producerTicks.get(),
+                produced, skippedByCap.get(), skippedZeroElapsed.get(),
+                frameRate(framesProduced, startTime, endTime),
+                producerTicks.get() * 1000.0 / (double) elapsedMs,
+                drawMeanMs, drawMaxMs, drawTotalMs,
+                consumerTicks.get(), framesConsumed.get(),
+                frameRate(framesConsumed, startTime, endTime)));
             result.success(null);
             break;
           case "getProducedFrameRate":

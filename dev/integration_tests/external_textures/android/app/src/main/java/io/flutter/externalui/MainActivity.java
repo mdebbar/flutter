@@ -58,6 +58,10 @@ public class MainActivity extends FlutterActivity {
   private volatile long tickBodyTotalNs;
   private volatile long consumerMaxLagMs;
   private long procCpuStartMs;
+  // Diagnostic A/B arm, chosen once per process: software lockCanvas (production path) vs
+  // lockHardwareCanvas. Partitions guest CPU starvation (H5: both arms slow) from software
+  // gralloc lock/post cost (H4/H6: hw arm fast); settles candidate C2b.
+  private static final boolean HW_CANVAS = new java.util.Random().nextBoolean();
 
   @Override
   public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
@@ -78,7 +82,7 @@ public class MainActivity extends FlutterActivity {
             drawMaxNs.set(0);
             final int fps = methodCall.arguments();
             lastTargetFps = fps;
-            final FrameRenderer renderer = new FrameRenderer(surface);
+            final FrameRenderer renderer = new FrameRenderer(surface, HW_CANVAS);
             lastRenderer = renderer;
             producerMaxLagMs = 0;
             producerLastLagMs = 0;
@@ -163,16 +167,17 @@ public class MainActivity extends FlutterActivity {
             final double n = Math.max(1, r.frames);
             Log.i("flutter", String.format(
                 Locale.US,
-                "[DEFLAKE_STATS2] targetFps=%d nproc=%d procCpuMs=%d elapsedMs=%d tickBodyTotalMs=%.1f "
+                "[DEFLAKE_STATS2] canvas=%s targetFps=%d nproc=%d procCpuMs=%d elapsedMs=%d tickBodyTotalMs=%.1f "
                     + "producerMaxLagMs=%d producerLastLagMs=%d producerLateTicks=%d consumerMaxLagMs=%d "
                     + "frames=%d lockMeanMs=%.2f lockCpuMeanMs=%.2f lockMaxMs=%.2f drawMeanMs=%.2f "
-                    + "drawCpuMeanMs=%.2f postMeanMs=%.2f postCpuMeanMs=%.2f postMaxMs=%.2f",
-                lastTargetFps, Runtime.getRuntime().availableProcessors(),
+                    + "drawCpuMeanMs=%.2f postMeanMs=%.2f postCpuMeanMs=%.2f postMaxMs=%.2f "
+                    + "framesOver16ms=%d",
+                HW_CANVAS ? "hw" : "sw", lastTargetFps, Runtime.getRuntime().availableProcessors(),
                 Process.getElapsedCpuTime() - procCpuStartMs, elapsedMs, tickBodyTotalNs / 1e6,
                 producerMaxLagMs, producerLastLagMs, producerLateTicks, consumerMaxLagMs,
                 r.frames, r.lockNs / n / 1e6, r.lockCpuNs / n / 1e6, r.lockMaxNs / 1e6,
                 r.drawNs / n / 1e6, r.drawCpuNs / n / 1e6, r.postNs / n / 1e6,
-                r.postCpuNs / n / 1e6, r.postMaxNs / 1e6));
+                r.postCpuNs / n / 1e6, r.postMaxNs / 1e6, r.framesOver16ms));
             result.success(null);
             break;
           case "getProducedFrameRate":
@@ -223,13 +228,15 @@ public class MainActivity extends FlutterActivity {
 
 class FrameRenderer {
   private final Surface surface;
+  private final boolean hw;
   private final Paint paint;
   private int frameCount = 0;
   // Diagnostic per-segment wall/thread-CPU totals (written on the producer timer thread only).
-  volatile long frames, lockNs, lockCpuNs, lockMaxNs, drawNs, drawCpuNs, postNs, postCpuNs, postMaxNs;
+  volatile long frames, lockNs, lockCpuNs, lockMaxNs, drawNs, drawCpuNs, postNs, postCpuNs, postMaxNs, framesOver16ms;
 
-  FrameRenderer(Surface surface) {
+  FrameRenderer(Surface surface, boolean hw) {
     this.surface = surface;
+    this.hw = hw;
     this.paint = new Paint();
     paint.setColor(0xffff0000);
     paint.setTextSize(48.0f);
@@ -239,7 +246,7 @@ class FrameRenderer {
   void drawFrame() {
     final long c0 = Debug.threadCpuTimeNanos();
     final long t0 = System.nanoTime();
-    final Canvas canvas = surface.lockCanvas(null);
+    final Canvas canvas = hw ? surface.lockHardwareCanvas() : surface.lockCanvas(null);
     final long c1 = Debug.threadCpuTimeNanos();
     final long t1 = System.nanoTime();
     canvas.drawColor(0xff000000);
@@ -258,5 +265,8 @@ class FrameRenderer {
     postNs += t3 - t2;
     postCpuNs += c3 - c2;
     postMaxNs = Math.max(postMaxNs, t3 - t2);
+    if (t3 - t0 > 16_000_000L) {
+      framesOver16ms++;
+    }
   }
 }

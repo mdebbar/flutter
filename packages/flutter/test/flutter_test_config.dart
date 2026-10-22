@@ -21,7 +21,9 @@ import '_goldens_io.dart' if (dart.library.js_interop) '_goldens_web.dart' as fl
 /// See documentation for [testWidgets] on how to except individual tests.
 bool _isLeakTrackingEnabled() {
   if (kIsWeb) {
-    return false;
+    // DO NOT LAND: temporarily force leak tracking on for web verification of
+    // https://github.com/flutter/flutter/issues/189178.
+    return true;
   }
   // The values can be different, one is compile time, another is run time.
   return const bool.fromEnvironment('LEAK_TRACKING') ||

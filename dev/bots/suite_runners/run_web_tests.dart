@@ -592,6 +592,13 @@ class WebTestsSuite {
       testsToRun = selectIndexOfTotalSubshard<String>(allTests);
     }
 
+    // DO NOT LAND: verification for https://github.com/flutter/flutter/issues/189178.
+    testsToRun = <String>[
+      path.join('test', 'widgets', 'snapshot_widget_test.dart'),
+      path.join('test', 'widgets', 'transform_test.dart'),
+      path.join('test', 'widgets', 'opacity_test.dart'),
+    ];
+    isLastShard = false;
     await _runFlutterWebTest(flutterPackageDirectory.path, testsToRun, useWasm);
 
     // The last shard also runs the flutter_web_plugins and flutter_driver tests.

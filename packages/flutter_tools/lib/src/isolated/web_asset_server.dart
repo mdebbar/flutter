@@ -307,6 +307,11 @@ class WebAssetServer implements AssetReader {
 
     shelf.Handler waitMiddleware(shelf.Handler innerHandler) {
       return (shelf.Request request) async {
+        final String p = request.url.path;
+        if (platform.environment.containsKey('DEFLAKE_WEB_BENCH') &&
+            (p.isEmpty || p == 'index.html' || p.endsWith('bootstrap.js') || p.contains('dwds'))) {
+          logger.printStatus('[DEFLAKE_HTTP] ${request.method} /$p');
+        }
         await server.isReady;
         return innerHandler(request);
       };

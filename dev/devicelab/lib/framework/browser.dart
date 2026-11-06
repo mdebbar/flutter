@@ -197,6 +197,52 @@ class Chrome {
   Completer<void>? _tracingCompleter;
   StreamSubscription<WipEvent>? _tracingSubscription;
   List<Map<String, dynamic>>? _tracingData;
+  StreamSubscription<WipEvent>? _diagSub;
+  StreamSubscription<Object?>? _closeSub;
+
+  Future<void> _enableDiagnostics(WipConnection c) async {
+    _closeSub = c.onClose.listen((_) => _isStopped ? null : print('[DEFLAKE_CDP] ws_closed'));
+    _diagSub = c.onNotification.listen((WipEvent e) {
+      final Map<String, Object?>? p = e.params;
+      final bool log = switch (e.method) {
+        'Inspector.targetCrashed' || 'Runtime.exceptionThrown' => true,
+        'Log.entryAdded' => (p?['entry'] as Map<String, Object?>?)?['level'] == 'error',
+        'Page.frameNavigated' => (p?['frame'] as Map<String, Object?>?)?['parentId'] == null,
+        'Runtime.consoleAPICalled' => p?['type'] == 'error' || '$p'.contains('DDC'),
+        _ => false,
+      };
+      if (log) {
+        print('[DEFLAKE_CDP] ${e.method} $p');
+      }
+    });
+    for (final m in const <String>['Page', 'Log', 'Runtime', 'Performance']) {
+      await c.sendCommand('$m.enable');
+    }
+  }
+
+  Future<String> _perfSummary(WipConnection c) async {
+    final WipResponse r = await c.sendCommand('Performance.getMetrics');
+    final Iterable<Object?> ms = ((r.result?['metrics'] as List<Object?>?) ?? const <Object?>[])
+        .where((Object? m) => '$m'.contains('Documents') || '$m'.contains('JSHeapUsed'));
+    final Object? s = io.Platform.isLinux
+        ? io.Process.runSync('df', <String>['-m', '/dev/shm']).stdout
+        : '';
+    return '${ms.toList()} shm=[${'$s'.trim().split('\n').last}]';
+  }
+
+  Future<void> dumpHangState() async {
+    if (_debugConnection case final WipConnection c) {
+      try {
+        const expr =
+            r'[location.href,document.readyState,document.scripts.length,window.$dartLoader?.loader?.attemptCount,'
+            r'window.$dartLoader?.loader?.numLoaded,window.$dartLoader?.loader?.numToLoad,window.$dartLoader?.loader?.numFailed].join("|")';
+        final RemoteObject r = await c.runtime.evaluate(expr).timeout(const Duration(seconds: 5));
+        print('[DEFLAKE_DOM] ${r.value} ${await _perfSummary(c)}');
+      } on Object catch (e) {
+        print('[DEFLAKE_DOM] evalFailed: $e');
+      }
+    }
+  }
 
   /// Starts recording a performance trace.
   ///
@@ -287,14 +333,17 @@ class Chrome {
   ///
   /// No-op when there is no debug connection.
   Future<void> collectGarbage() async {
-    final WipConnection? debugConnection = _debugConnection;
-    if (debugConnection == null) {
+    final WipConnection? c = _debugConnection;
+    if (c == null) {
       return;
     }
     try {
-      await debugConnection
-          .sendCommand('HeapProfiler.collectGarbage')
-          .timeout(const Duration(seconds: 30));
+      if (_diagSub == null) {
+        await _enableDiagnostics(c);
+      }
+      final sw = Stopwatch()..start();
+      await c.sendCommand('HeapProfiler.collectGarbage').timeout(const Duration(seconds: 30));
+      print('[DEFLAKE_Q2] gcMs=${sw.elapsedMilliseconds} ${await _perfSummary(c)}');
     } on Object catch (error) {
       print('HeapProfiler.collectGarbage failed: $error');
     }
@@ -304,6 +353,8 @@ class Chrome {
   void disconnect() {
     _isStopped = true;
     _tracingSubscription?.cancel();
+    _diagSub?.cancel();
+    _closeSub?.cancel();
   }
 
   /// Stops the Chrome process.

@@ -392,6 +392,9 @@ class ChromiumLauncher {
           return;
         }
         addLog('CHROME STDERR', line);
+        if (_platform.environment.containsKey('DEFLAKE_WEB_BENCH')) {
+          _logger.printStatus('[DEFLAKE_CHROME_ERR] $line');
+        }
         if (line.contains(_kGlibcError)) {
           hitGlibcBug = true;
           shouldRetry = true;

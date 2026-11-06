@@ -193,6 +193,7 @@ Future<TaskResult> runWebBenchmark(
 
   StreamSubscription<io.ProcessSignal>? sigintSub;
   StreamSubscription<io.ProcessSignal>? sigtermSub;
+  Timer? reloadWatchdog;
 
   try {
     sigintSub = io.ProcessSignal.sigint.watch().listen((io.ProcessSignal signal) async {
@@ -230,6 +231,7 @@ Future<TaskResult> runWebBenchmark(
         final ddcAppReady = Completer<void>();
         flutterRunProcess = await startFlutter(
           'run',
+          environment: const <String, String>{'DEFLAKE_WEB_BENCH': '1'},
           options: <String>[
             '-d',
             'chrome',
@@ -355,6 +357,14 @@ Future<TaskResult> runWebBenchmark(
               latestPerformanceTrace = null;
             }
             collectedProfiles.add(profile);
+            reloadWatchdog?.cancel();
+            reloadWatchdog = Timer(const Duration(seconds: 90), () async {
+              print('[DEFLAKE_HANG] 90s reload timeout after "$benchmarkName"');
+              await chrome?.dumpHangState();
+              await performCleanup();
+              await io.stdout.flush();
+              io.exit(1);
+            });
             return Response.ok('Profile received', headers: requestHeaders);
           } else if (request.requestedUri.path.endsWith('/start-performance-tracing')) {
             latestPerformanceTrace = null;
@@ -372,6 +382,7 @@ Future<TaskResult> runWebBenchmark(
             }
             return Response.ok('', headers: requestHeaders);
           } else if (request.requestedUri.path.endsWith('/next-benchmark')) {
+            reloadWatchdog?.cancel();
             if (benchmarks == null) {
               try {
                 final List<String> allBenchmarks = (json.decode(requestContents) as List<Object?>)
@@ -494,6 +505,7 @@ Future<TaskResult> runWebBenchmark(
       return processBenchmarkProfiles(profiles, benchmarkOptions);
     });
   } finally {
+    reloadWatchdog?.cancel();
     await sigintSub?.cancel();
     await sigtermSub?.cancel();
     await performCleanup();

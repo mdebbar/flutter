@@ -156,14 +156,22 @@ class WebDevFS implements DevFS {
     // [firstConnection] completing; thus test the boolean to determine if
     // the current connection is the first.
     var foundFirstConnection = false;
+    void diag(String msg) {
+      if (_toolContext.platform.environment.containsKey('DEFLAKE_WEB_BENCH')) {
+        logger.printStatus('[DEFLAKE_DWDS] $msg');
+      }
+    }
+
     _connectedApps = dwds.connectedApps.listen(
       (AppConnection appConnection) async {
+        diag('connected first=${!foundFirstConnection}');
         try {
           final DebugConnection debugConnection = useDebugExtension
               ? await (_cachedExtensionFuture ??= dwds.extensionDebugConnections.stream.first)
               : await dwds.debugConnection(appConnection);
           if (foundFirstConnection) {
             appConnection.runMain();
+            diag('runMain');
           } else {
             foundFirstConnection = true;
             final vm_service.VmService vmService = await vmServiceFactory(
@@ -173,6 +181,7 @@ class WebDevFS implements DevFS {
             firstConnection.complete(ConnectionResult(appConnection, debugConnection, vmService));
           }
         } on Exception catch (error, stackTrace) {
+          diag('ERR: $error\n$stackTrace');
           if (!firstConnection.isCompleted) {
             firstConnection.completeError(error, stackTrace);
           }

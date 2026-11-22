@@ -9,3 +9,5 @@ and include the timestamp and failing URL.
 ## If you find a security vulnerability
 
 Please see our [security policy](https://docs.flutter.dev/security#reporting-vulnerabilities) for instructions.
+
+- Check internal status dashboard before filing a ticket.

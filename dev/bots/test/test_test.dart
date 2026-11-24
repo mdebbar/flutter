@@ -205,6 +205,24 @@ void main() {
       expectExitCode(result, 0);
       expect(result.stdout, contains('|> bin/flutter'));
     }, testOn: 'posix');
+
+    for (final shard in <String>['web_canvaskit_tests', 'web_skwasm_tests']) {
+      test('$shard forwards LEAK_TRACKING env var as --dart-define', () async {
+        final ProcessResult enabledResult = await runScript(
+          <String, String>{'SHARD': shard, 'SUBSHARD': '1_2', 'LEAK_TRACKING': 'true'},
+          <String>['--dry-run'],
+        );
+        expectExitCode(enabledResult, 0);
+        expect(enabledResult.stdout, contains('--dart-define=LEAK_TRACKING=true'));
+
+        final ProcessResult disabledResult = await runScript(
+          <String, String>{'SHARD': shard, 'SUBSHARD': '1_2', 'LEAK_TRACKING': ''},
+          <String>['--dry-run'],
+        );
+        expectExitCode(disabledResult, 0);
+        expect(disabledResult.stdout, isNot(contains('--dart-define=LEAK_TRACKING=true')));
+      });
+    }
   });
 
   test('selectTestsForSubShard distributes tests amongst subshards correctly', () async {

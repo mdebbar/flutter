@@ -64,4 +64,12 @@ Leak tracking is enabled on two test shards in Flutter's testing infrastructure:
 For local testing, or for test shards configuration, to enable leak tracking for flutter tests, pass
 `--dart-define LEAK_TRACKING=true` to `flutter test`.
 
+Leak tracking is also supported for web tests (`flutter test --platform=chrome --dart-define=LEAK_TRACKING=true`,
+with or without `--wasm`). On the web only the `--dart-define` flag is read directly because
+browser tests cannot access `Platform.environment`; `dev/bots/test.dart` forwards the
+`LEAK_TRACKING` environment variable as `--dart-define=LEAK_TRACKING=true` for web shards.
+The `createdByTestHelpers` filter is disabled on the web because it only matches VM stack
+frame formatting and capturing `StackTrace.current` per tracked object retains V8 frame
+receivers under DDC, which exhausts the browser heap.
+
 You can see the bot's status on the [Flutter build dashboard](https://flutter-dashboard.appspot.com/#/build).

@@ -596,6 +596,7 @@ class WebTestsSuite {
         '--platform=chrome',
         if (useWasm) '--wasm',
         '--dart-define=DART_HHH_BOT=$runningInDartHHHBot',
+        if (isLeakTrackingRequested) '--dart-define=LEAK_TRACKING=true',
         ...flutterTestArgs,
         ...tests,
       ],

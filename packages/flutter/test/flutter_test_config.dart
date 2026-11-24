@@ -18,10 +18,13 @@ import '_goldens_io.dart' if (dart.library.js_interop) '_goldens_web.dart' as fl
 /// To enable the leak tracking, either pass the compilation flag
 /// `--dart-define LEAK_TRACKING=true` or invoke `export LEAK_TRACKING=true`.
 ///
+/// On the web only `--dart-define LEAK_TRACKING=true` is supported because
+/// `Platform.environment` is unavailable in the browser.
+///
 /// See documentation for [testWidgets] on how to except individual tests.
 bool _isLeakTrackingEnabled() {
   if (kIsWeb) {
-    return false;
+    return const bool.fromEnvironment('LEAK_TRACKING');
   }
   // The values can be different, one is compile time, another is run time.
   return const bool.fromEnvironment('LEAK_TRACKING') ||
@@ -47,7 +50,15 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) {
     // to print in the error message.
     LeakTracking.troubleshootingDocumentationLink =
         'https://github.com/flutter/flutter/blob/main/docs/contributing/testing/Leak-tracking.md';
-    LeakTesting.settings = LeakTesting.settings.withIgnored(createdByTestHelpers: true);
+    // `createdByTestHelpers` makes leak_tracker capture `StackTrace.current`
+    // for every tracked object. Under DDC, `_StackTrace` holds an unformatted
+    // V8 `Error` whose internal call-site frames retain every frame's receiver
+    // (including the tracked object itself). Because `ObjectRecord` is the
+    // `Finalizer` held value, that creates a retention cycle that blocks GC and
+    // exhausts the browser heap. The heuristic also matches VM-only stack frame
+    // syntax (`(package:flutter_test/`, `/test/`), so it is inert on both DDC
+    // and dart2wasm.
+    LeakTesting.settings = LeakTesting.settings.withIgnored(createdByTestHelpers: !kIsWeb);
   }
 
   // Enable golden file testing using Skia Gold.

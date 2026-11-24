@@ -42,6 +42,15 @@ final bool hasColor = stdout.supportsAnsiEscapes && !isLuci;
 final bool _isRandomizationOff =
     bool.tryParse(Platform.environment['TEST_RANDOMIZATION_OFF'] ?? '') ?? false;
 
+/// Whether the `LEAK_TRACKING` environment variable requests leak tracking.
+///
+/// The LUCI recipe sets this variable from the `leak_tracking` builder
+/// property. VM tests read it directly in `flutter_test_config.dart`; browser
+/// tests cannot read host environment variables, so the web test runner
+/// forwards it as `--dart-define=LEAK_TRACKING=true`.
+final bool isLeakTrackingRequested =
+    bool.tryParse(Platform.environment['LEAK_TRACKING'] ?? '') ?? false;
+
 final String bold = hasColor ? '\x1B[1m' : ''; // shard titles
 final String red = hasColor ? '\x1B[31m' : ''; // errors
 final String green = hasColor ? '\x1B[32m' : ''; // section titles, commands
